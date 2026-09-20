@@ -1,0 +1,169 @@
+:root {
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --ink: #14213d;
+  --muted: #64748b;
+  --accent: #1e40af;
+  --accent-2: #1d4ed8;
+  --ok: #15803d;
+  --err: #b91c1c;
+  --line: #e2e8f0;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.9;
+}
+
+body { padding: 0 16px 48px; }
+
+header {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 22px 4px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 34px; line-height: 1; }
+h1 { margin: 0; font-size: 24px; }
+.sub { margin: 0; color: var(--muted); font-size: 14px; }
+h2 { margin: 0 0 10px; font-size: 18px; }
+
+main, footer { max-width: 980px; margin: 0 auto; }
+footer { padding-top: 18px; }
+footer p { text-align: center; font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin: 14px 0;
+  box-shadow: 0 1px 3px rgba(20, 33, 61, 0.05);
+}
+
+.hidden { display: none !important; }
+
+.row { display: flex; align-items: center; gap: 10px; }
+.row.between { justify-content: space-between; }
+.row.wrap { flex-wrap: wrap; }
+.row + .row { margin-top: 8px; }
+
+.field { display: block; margin: 12px 0; font-weight: 600; }
+.field select, .field input { width: 100%; margin-top: 6px; }
+.field .row select { flex: 1; width: auto; }
+
+input[type="password"], input[type="text"], select, textarea {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 160px;
+  line-height: 1.9;
+  margin-bottom: 10px;
+}
+
+select { cursor: pointer; }
+
+button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid transparent; }
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  padding: 12px 22px;
+}
+button.primary:hover { background: var(--accent-2); }
+button.primary:disabled { opacity: 0.6; cursor: wait; }
+
+button.big { width: 100%; font-size: 19px; padding: 14px; margin-top: 6px; }
+
+button.ghost {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: var(--ink);
+  padding: 10px 16px;
+}
+button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+button.small { padding: 6px 12px; font-size: 14px; }
+
+.filebtn {
+  display: inline-block;
+  background: #fff;
+  border: 1px dashed #94a3b8;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 15px;
+}
+.filebtn:hover { border-color: var(--accent); color: var(--accent); }
+
+.check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-weight: 600; }
+.check input { width: 18px; height: 18px; }
+
+.muted { color: var(--muted); font-size: 14px; }
+.status { margin-top: 8px; min-height: 22px; font-size: 15px; }
+.status.err, .err { color: var(--err) !important; }
+
+.out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 2.05;
+  font-size: 17px;
+}
+
+#historyList { list-style: none; margin: 0; padding: 0; }
+#historyList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--line);
+}
+#historyList li:last-child { border-bottom: 0; }
+#historyList button.link {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  text-align: right;
+  padding: 0;
+  font-size: 15px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+details { margin: 10px 0; }
+summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+details ol { margin: 8px 0 0; padding-right: 20px; }
+
+@media print {
+  body * { visibility: hidden; }
+  #output, #output * { visibility: visible; }
+  #output { position: absolute; inset: 0; margin: 0; }
+  #output button { display: none; }
+}
+
+@media (max-width: 700px) {
+  body { font-size: 16px; }
+  h1 { font-size: 21px; }
+  header { flex-wrap: wrap; }
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مساعد القضايا | تلخيص وترجمة</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="logo">⚖️</span>
+    <div>
+      <h1>مساعد القضايا</h1>
+      <p class="sub">تلخيص وترجمة تلقائية للقضايا والوثائق القانونية</p>
+    </div>
+  </div>
+  <button id="btnSettings" class="ghost">الإعدادات</button>
+</header>
+
+<section id="settings" class="card hidden">
+  <h2>الإعدادات</h2>
+
+  <label class="field">المزود
+    <select id="providerSel">
+      <option value="gemini">Gemini (جوجل) - الأفضل للعربية ولقراءة ملفات PDF والسكانر</option>
+      <option value="openrouter">OpenRouter - موديلات مجانية متنوعة</option>
+    </select>
+  </label>
+
+  <label class="field">مفتاح الخدمة
+    <div class="row">
+      <input id="apiKey" type="password" placeholder="AIza..." dir="ltr" autocomplete="off">
+      <button id="btnToggleKey" class="ghost small" type="button">إظهار</button>
+    </div>
+  </label>
+
+  <label class="field">الموديل
+    <div class="row">
+      <select id="modelSel"></select>
+      <button id="btnRefreshModels" class="ghost small" type="button">تحديث القائمة</button>
+    </div>
+  </label>
+
+  <label class="check">
+    <input id="fallbackChk" type="checkbox" checked>
+    التحويل التلقائي للمزود الآخر إذا انتهى الحد المجاني
+  </label>
+
+  <div class="row">
+    <button id="btnSave" class="primary small" type="button">حفظ</button>
+    <span id="saveStatus" class="muted"></span>
+  </div>
+
+  <details>
+    <summary>كيف أحصل على مفتاح Gemini؟ (مجاني)</summary>
+    <ol>
+      <li>افتح صفحة مفاتيح Google AI Studio: <span dir="ltr">aistudio.google.com/apikey</span></li>
+      <li>سجّل الدخول بحساب جوجل عادي.</li>
+      <li>اضغط Create API key وانسخ المفتاح.</li>
+      <li>الصقه في الخانة أعلاه واضغط حفظ. لا تحتاج بطاقة دفع.</li>
+    </ol>
+  </details>
+
+  <details>
+    <summary>كيف أحصل على مفتاح OpenRouter؟ (مجاني)</summary>
+    <ol>
+      <li>افتح <span dir="ltr">openrouter.ai</span> وسجّل الدخول بحساب جوجل.</li>
+      <li>افتح صفحة المفاتيح: <span dir="ltr">openrouter.ai/settings/keys</span></li>
+      <li>اضغط Create Key وانسخ المفتاح (يبدأ بـ <span dir="ltr">sk-or-v1-</span>).</li>
+      <li>الصقه هنا واضغط حفظ. الحد المجاني: 50 طلبًا يوميًا من الموديلات المجانية.</li>
+    </ol>
+  </details>
+</section>
+
+<main>
+  <section class="card">
+    <h2>نص القضية</h2>
+    <textarea id="caseText" placeholder="الصق نص القضية أو الوثيقة هنا..." rows="9"></textarea>
+    <div class="row between wrap">
+      <div class="row wrap">
+        <label class="filebtn">ارفع ملف (PDF أو صورة أو نص)
+          <input id="fileInput" type="file" accept=".pdf,.txt,image/png,image/jpeg,image/webp" hidden>
+        </label>
+        <span id="fileInfo" class="muted"></span>
+      </div>
+      <button id="btnClear" class="ghost small" type="button">تفريغ</button>
+    </div>
+    <button id="btnRun" class="primary big" type="button">لخّص وترجم</button>
+    <div id="runStatus" class="muted status"></div>
+  </section>
+
+  <section id="output" class="hidden">
+    <div class="card">
+      <div class="row between">
+        <h2>الملخص</h2>
+        <button class="ghost small" type="button" data-copy="summary">نسخ</button>
+      </div>
+      <div id="summaryOut" class="out"></div>
+    </div>
+    <div class="card">
+      <div class="row between">
+        <h2>الترجمة</h2>
+        <button class="ghost small" type="button" data-copy="translation">نسخ</button>
+      </div>
+      <div id="transOut" class="out" dir="auto"></div>
+    </div>
+    <div class="row">
+      <button id="btnWord" class="ghost" type="button">تحميل Word</button>
+      <button id="btnPrint" class="ghost" type="button">طباعة / PDF</button>
+    </div>
+  </section>
+
+  <section id="historyCard" class="card hidden">
+    <div class="row between">
+      <h2>السجل</h2>
+      <button id="btnClearHistory" class="ghost small" type="button">مسح السجل</button>
+    </div>
+    <ul id="historyList"></ul>
+  </section>
+</main>
+
+<footer>
+  <p class="muted">يعمل بمفتاحك الخاص. النصوص تُرسل إلى مزود الخدمة المختار فقط ولا تُخزن في أي مكان آخر.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
