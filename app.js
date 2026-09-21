@@ -15,7 +15,10 @@ const LS = {
   keyOR: "qa_key_openrouter",
   modelGemini: "qa_model_gemini",
   modelOR: "qa_model_openrouter",
-  history: "qa_history"
+  history: "qa_history",
+  users: "qa_users",
+  activeUser: "qa_active_user",
+  adminFlag: "qa_admin"
 };
 
 const $ = (id) => document.getElementById(id);
@@ -146,6 +149,149 @@ function provider() { return localStorage.getItem(LS.provider) || "gemini"; }
 function keyFor(p) { return (localStorage.getItem(p === "gemini" ? LS.keyGemini : LS.keyOR) || "").trim(); }
 function modelFor(p) { return localStorage.getItem(p === "gemini" ? LS.modelGemini : LS.modelOR) || (p === "gemini" ? GEMINI_DEFAULT : OR_DEFAULT); }
 function saveModelFor(p, id) { localStorage.setItem(p === "gemini" ? LS.modelGemini : LS.modelOR, id); }
+
+/* ===== المستخدمون ووضع المدير ===== */
+const USER_HIST_PREFIX = "qa_history_u_";
+
+function loadUsers() {
+  try { return JSON.parse(localStorage.getItem(LS.users) || "[]"); } catch (e) { return []; }
+}
+function saveUsers(list) { localStorage.setItem(LS.users, JSON.stringify(list)); }
+function currentUser() {
+  const id = localStorage.getItem(LS.activeUser) || "";
+  return loadUsers().find(u => u.id === id) || null;
+}
+async function hashPin(pin) {
+  const s = "qa::" + pin;
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    return "djb2_" + h.toString(16);
+  }
+}
+function userHistoryKey() { const u = currentUser(); return u ? USER_HIST_PREFIX + u.id : null; }
+let pendingUser = null;
+
+function setLoginMsg(msg, isErr) {
+  const el = $("loginMsg");
+  el.textContent = msg || "";
+  el.classList.toggle("err", !!isErr);
+}
+function showLogin() { renderLogin(); show($("login"), true); }
+function hideLogin() { show($("login"), false); }
+function renderLogin() {
+  pendingUser = null;
+  show($("loginPinWrap"), false);
+  show($("newUserForm"), true);
+  show($("loginUsersWrap"), false);
+  setLoginMsg("");
+  const list = loadUsers();
+  const wrap = $("loginUsers");
+  wrap.innerHTML = "";
+  if (list.length) {
+    show($("loginUsersWrap"), true);
+    list.forEach((u) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "login-user";
+      b.innerHTML = '<span class="avatar">' + escapeHtml((u.name || "?").trim().charAt(0)) + '</span><span class="lu-name">' + escapeHtml(u.name) + "</span>" + (u.pin ? '<span class="lu-lock">محمي برمز</span>' : "");
+      b.addEventListener("click", () => {
+        if (u.pin) {
+          pendingUser = u;
+          show($("loginUsersWrap"), false);
+          show($("newUserForm"), false);
+          show($("loginPinWrap"), true);
+          $("pinWho").textContent = u.name;
+          $("loginPin").value = "";
+          setLoginMsg("");
+          $("loginPin").focus();
+        } else {
+          loginUser(u);
+        }
+      });
+      wrap.appendChild(b);
+    });
+  }
+}
+async function createUser() {
+  const name = $("newUserName").value.trim().replace(/\s+/g, " ").slice(0, 40);
+  const pin = $("newUserPin").value.trim();
+  if (!name) { setLoginMsg("اكتب الاسم أولًا", true); return; }
+  if (pin && !/^\d{4,8}$/.test(pin)) { setLoginMsg("رمز الدخول من 4 إلى 8 أرقام، أو اتركه فارغًا", true); return; }
+  const list = loadUsers();
+  if (list.some(u => u.name === name)) { setLoginMsg("الاسم موجود بالفعل. اختره من القائمة أو اكتب اسمًا آخر", true); return; }
+  const u = { id: "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, pin: pin ? await hashPin(pin) : "", t: Date.now() };
+  list.push(u);
+  saveUsers(list);
+  migrateOldHistory(u.id);
+  loginUser(u);
+}
+function migrateOldHistory(uid) {
+  try {
+    const old = localStorage.getItem(LS.history);
+    if (old && old !== "[]") {
+      const k = USER_HIST_PREFIX + uid;
+      if (!localStorage.getItem(k)) localStorage.setItem(k, old);
+      localStorage.removeItem(LS.history);
+    }
+  } catch (e) {}
+}
+async function submitPin() {
+  if (!pendingUser) return;
+  const v = $("loginPin").value.trim();
+  if (!v) return;
+  const h = await hashPin(v);
+  if (h === pendingUser.pin) loginUser(pendingUser);
+  else setLoginMsg("الرمز غير صحيح، حاول مرة أخرى", true);
+}
+function loginUser(u) {
+  localStorage.setItem(LS.activeUser, u.id);
+  pendingUser = null;
+  hideLogin();
+  applyUserUI();
+  /* لا تبقى نتيجة مستخدم آخر ظاهرة بعد التبديل */
+  last = { summary: "", summaryEn: "", translation: "" };
+  currentSource = { kind: "none" };
+  currentCites = [];
+  show($("output"), false);
+  setStatus("");
+  renderHistory();
+}
+function logoutUser() {
+  localStorage.removeItem(LS.activeUser);
+  showLogin();
+}
+function applyUserUI() {
+  const u = currentUser();
+  show($("userChip"), !!u);
+  if (u) {
+    $("userAva").textContent = (u.name || "؟").trim().charAt(0);
+    $("userName").textContent = u.name;
+  }
+}
+/* وضع المدير: إعدادات المفتاح والموديل له وحده */
+function isAdmin() {
+  try { return sessionStorage.getItem(LS.adminFlag) === "1"; } catch (e) { return false; }
+}
+function enterAdmin() {
+  try { sessionStorage.setItem(LS.adminFlag, "1"); } catch (e) {}
+  applyAdminUI();
+  if (!keyFor(provider())) show($("settings"), true);
+}
+function exitAdmin() {
+  try { sessionStorage.removeItem(LS.adminFlag); } catch (e) {}
+  show($("settings"), false);
+  applyAdminUI();
+}
+function applyAdminUI() {
+  const on = isAdmin();
+  show($("adminPill"), on);
+  show($("btnSettings"), on);
+  if (!on) show($("settings"), false);
+}
 
 /* ===== قراءة الملفات ===== */
 async function toB64(file) {
@@ -1082,11 +1228,15 @@ function refreshDownloadRows() {
   if (trSub && hasTr) trSub.textContent = trLang() === "en" ? "النص الكامل مترجمًا إلى الإنجليزية، لوحده" : "النص الكامل مترجمًا إلى العربية، لوحده";
 }
 
-/* ===== السجل ===== */
+/* ===== السجل (لكل مستخدم سجله الخاص) ===== */
 function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(LS.history) || "[]"); } catch (e) { return []; }
+  const k = userHistoryKey();
+  if (!k) return [];
+  try { return JSON.parse(localStorage.getItem(k) || "[]"); } catch (e) { return []; }
 }
 function saveHistory(srcTitle, parsed, model, src) {
+  const k = userHistoryKey();
+  if (!k) return;
   const h = loadHistory();
   const entry = {
     t: Date.now(),
@@ -1104,17 +1254,20 @@ function saveHistory(srcTitle, parsed, model, src) {
   h.unshift(entry);
   const trimmed = h.slice(0, 30);
   try {
-    localStorage.setItem(LS.history, JSON.stringify(trimmed));
+    localStorage.setItem(k, JSON.stringify(trimmed));
   } catch (e) {
     try {
       trimmed.forEach(x => { delete x.srcText; });
-      localStorage.setItem(LS.history, JSON.stringify(trimmed));
+      localStorage.setItem(k, JSON.stringify(trimmed));
     } catch (e2) {}
   }
   renderHistory();
 }
 function renderHistory() {
   const h = loadHistory();
+  const u = currentUser();
+  const who = $("histWho");
+  if (who) who.textContent = u ? "(" + u.name + ")" : "";
   const card = $("historyCard");
   const list = $("historyList");
   show(card, h.length > 0);
@@ -1223,11 +1376,16 @@ function printExport(which) {
 /* ===== تشغيل ===== */
 async function run() {
   if (running) return;
+  if (!currentUser()) { showLogin(); return; }
   const p = provider();
   const key = keyFor(p);
   if (!key) {
-    setStatus("ضع مفتاح " + labelOf(p) + " في الإعدادات أولًا", true);
-    show($("settings"), true);
+    if (isAdmin()) {
+      setStatus("ضع مفتاح " + labelOf(p) + " في الإعدادات أولًا", true);
+      show($("settings"), true);
+    } else {
+      setStatus("الخدمة غير مفعّلة على هذا المتصفح بعد. تواصل مع مسؤول النظام لتفعيلها.", true);
+    }
     return;
   }
   const text = $("caseText").value.trim();
@@ -1383,13 +1541,42 @@ function init() {
   });
 
   $("btnClearHistory").addEventListener("click", () => {
-    localStorage.removeItem(LS.history);
+    const k = userHistoryKey();
+    if (k) localStorage.removeItem(k);
     renderHistory();
   });
 
+  /* المستخدمون والدخول */
+  $("btnSwitchUser").addEventListener("click", logoutUser);
+  $("btnCreateUser").addEventListener("click", createUser);
+  $("newUserName").addEventListener("keydown", (e) => { if (e.key === "Enter") createUser(); });
+  $("newUserPin").addEventListener("keydown", (e) => { if (e.key === "Enter") createUser(); });
+  $("btnLoginPin").addEventListener("click", submitPin);
+  $("loginPin").addEventListener("keydown", (e) => { if (e.key === "Enter") submitPin(); });
+  $("btnPinBack").addEventListener("click", renderLogin);
+  $("btnExitAdmin").addEventListener("click", exitAdmin);
+
+  /* وضع المدير: رابط #admin أو خمس نقرات متتالية على اسم الموقع في الأسفل */
+  if ((location.hash || "").toLowerCase() === "#admin") enterAdmin();
+  window.addEventListener("hashchange", () => {
+    if ((location.hash || "").toLowerCase() === "#admin") enterAdmin();
+  });
+  let adminTaps = 0, adminTapAt = 0;
+  $("adminTap").addEventListener("click", () => {
+    const now = Date.now();
+    if (now - adminTapAt > 2500) adminTaps = 0;
+    adminTapAt = now;
+    adminTaps++;
+    if (adminTaps >= 5) { adminTaps = 0; enterAdmin(); }
+  });
+
+  applyAdminUI();
+  if (currentUser()) hideLogin(); else showLogin();
+  applyUserUI();
   renderHistory();
   buildPrintRoot("full");
   if (keyFor(provider())) refreshModels(true);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
