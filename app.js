@@ -689,7 +689,7 @@ function closeViewer() {
 function setVwQuote(c) {
   const q = $("vwQuote");
   if (c && c.text) {
-    q.textContent = "الاقتباس: «" + c.text + "»" + (c.pg ? "  (رقم الصفحة من المصدر: " + c.pg + ")" : "");
+    q.textContent = "الاقتباس: «" + c.text + "»";
     q.classList.remove("hidden");
   } else {
     q.textContent = "";
