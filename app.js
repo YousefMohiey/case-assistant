@@ -21,14 +21,14 @@ const LS = {
 const $ = (id) => document.getElementById(id);
 
 let attached = null; /* { mime, name, text?, data?, dataUrl?, url? } */
-let last = { summary: "", translation: "" };
+let last = { summary: "", summaryEn: "", translation: "" };
 let currentSource = { kind: "none" }; /* { kind: "text"|"pdf"|"image"|"none", text?, url?, name? } */
-let currentCites = []; /* نصوص الاقتباسات بترتيب أرقام المصادر */
+let currentCites = []; /* [{ text, pg }] نصوص الاقتباسات وأرقام صفحاتها إن وُجدت */
 let running = false;
 
-const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ مصري.
+const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ عربي مقيم في دولة الإمارات العربية المتحدة، ويتعامل مع وثائق وقضايا عربية وإنجليزية.
 
-المطلوب منك شيئان معًا:
+المطلوب منك ثلاثة أشياء معًا:
 
 1) الملخص: اكتب ملخصًا قانونيًا بالعربية الفصحى للوثيقة، على شكل أقسام بهذا الترتيب:
 
@@ -52,14 +52,27 @@ const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ 
 - بعد كل نقطة، أضف الجزء الدال من نص الوثيقة الذي تدعمه هذه النقطة، منسوخًا حرفيًا كما هو.
 - ضع الاقتباس بين علامتي ‹ و › هكذا: - (النقطة) ‹النص الحرفي من الوثيقة›
 - الاقتباس قصير: من 5 إلى 20 كلمة، بدون تغيير أو تلخيص أو نقاط حذف، وفي سطر واحد.
+- إذا كان المستند ملف PDF وأمكنك تحديد الصفحة، أضف رقم الصفحة في نهاية الاقتباس هكذا: ‹النص الحرفي|صفحة 3›. إذا لم تكن متأكدًا فاتركه بدون رقم صفحة.
 - لا تختلق اقتباسات أبدًا. إذا لم تجد نصًا حرفيًا يدعم النقطة، اكتب النقطة بدون اقتباس.
 
-2) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على أسماء الأطراف والمحاكم والتواريخ والأرقام كما هي، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
+2) الملخص بالإنجليزية: اكتب لنفس الوثيقة ملخصًا بالإنجليزية الفصحى بنفس الترتيب (نوع القضية والأطراف، الوقائع، الطلبات، التواريخ، المبالغ، النقاط القانونية)، مع عناوين إنجليزية واضحة مثل:
+### Case Type and Parties
+### Facts
+### Claims or Requests
+### Key Dates
+### Amounts
+### Legal Points and Actions
+بدون أي علامات ‹ › أو اقتباسات في هذا القسم.
+
+3) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على أسماء الأطراف والمحاكم والتواريخ والأرقام كما هي، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
 
 أخرج النتيجة بهذا الشكل بالضبط، دون أي مقدمات:
 
 ## الملخص
 (الملخص هنا)
+
+## الملخص بالإنجليزية
+(English summary here)
 
 ## الترجمة
 (الترجمة الكاملة هنا)`;
@@ -91,6 +104,7 @@ function dateAr() {
   try { return new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); }
   catch (e) { return new Date().toISOString().slice(0, 10); }
 }
+function isoDate() { return new Date().toISOString().slice(0, 10); }
 
 function provider() { return localStorage.getItem(LS.provider) || "gemini"; }
 function keyFor(p) { return (localStorage.getItem(p === "gemini" ? LS.keyGemini : LS.keyOR) || "").trim(); }
@@ -320,16 +334,35 @@ async function callProvider(p, key, text) {
 /* ===== تحليل مخرجات الموديل ===== */
 function parseOutput(t) {
   t = String(t || "").trim();
-  const m = t.match(/##\s*الملخص\s*([\s\S]*?)\s*##\s*الترجمة\s*([\s\S]*)$/);
-  if (m) return { summary: m[1].trim(), translation: m[2].trim() };
-  const i = t.indexOf("## الترجمة");
-  if (i >= 0) {
-    return {
-      summary: t.slice(0, i).replace(/##\s*الملخص/, "").trim(),
-      translation: t.slice(i + "## الترجمة".length).trim()
-    };
+  const heads = [];
+  const re = /^##\s+(.+?)\s*$/gm;
+  let m;
+  while ((m = re.exec(t))) heads.push({ title: m[1], start: m.index, bodyStart: re.lastIndex });
+  if (!heads.length) {
+    const i = t.indexOf("## الترجمة");
+    if (i >= 0) {
+      return {
+        summary: t.slice(0, i).replace(/##\s*الملخص/, "").trim(),
+        summaryEn: "",
+        translation: t.slice(i + "## الترجمة".length).trim()
+      };
+    }
+    return { summary: t, summaryEn: "", translation: "" };
   }
-  return { summary: t, translation: "" };
+  const secs = heads.map((h, i) => ({
+    title: h.title,
+    body: t.slice(h.bodyStart, i + 1 < heads.length ? heads[i + 1].start : t.length).trim()
+  }));
+  let summary = "", summaryEn = "", translation = "";
+  for (const s of secs) {
+    if (/ترجم|translat/i.test(s.title)) translation = s.body;
+    else if (/إنجليز|english/i.test(s.title)) summaryEn = s.body;
+    else summary = summary ? summary + "\n\n" + s.body : s.body;
+  }
+  if (!summary && !summaryEn && !translation && secs.length) {
+    summary = secs.map(s => "## " + s.title + "\n" + s.body).join("\n\n");
+  }
+  return { summary, summaryEn, translation };
 }
 
 function stripCiteMarks(t) { return String(t || "").replace(/[‹›]/g, ""); }
@@ -339,6 +372,14 @@ function stripCitesForCopy(t) {
 
 /* ===== تحويل الماركداون إلى كتل ===== */
 /* كتلة: { kind: "h2"|"h3"|"p"|"li"|"oli"|"hr", num?, spans: [{ t, b?, i?, code?, cite?, ci? }] } */
+function parseCite(inner) {
+  let qt = String(inner || "").trim();
+  let pg = null;
+  const pm = qt.match(/^(.*?)\|\s*(?:صفحة|صفحه|ص|page|p)\s*(\d+)\s*$/i);
+  if (pm) { qt = pm[1].trim(); pg = parseInt(pm[2], 10) || null; }
+  return { text: qt, pg };
+}
+
 function inlineSpans(text, ctx) {
   const spans = [];
   const re = /‹([^›]+)›|\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
@@ -346,8 +387,9 @@ function inlineSpans(text, ctx) {
   while ((m = re.exec(text))) {
     if (m.index > lastIdx) spans.push({ t: text.slice(lastIdx, m.index) });
     if (m[1] != null) {
-      const span = { t: m[1].trim(), cite: true, ci: ctx.n++ };
-      ctx.quotes.push(span.t);
+      const c = parseCite(m[1]);
+      const span = { t: c.text, cite: true, ci: ctx.n++, pg: c.pg };
+      ctx.quotes.push({ text: c.text, pg: c.pg });
       spans.push(span);
     } else if (m[2] != null) spans.push({ t: m[2], b: true });
     else if (m[3] != null) spans.push({ t: m[3], i: true });
@@ -393,7 +435,8 @@ function spansHtml(spans, mode) {
   return spans.map(s => {
     if (s.cite) {
       if (mode === "print") return '<sup class="refn">[' + (s.ci + 1) + "]</sup>";
-      return '<button type="button" class="cite" data-i="' + s.ci + '" title="الانتقال إلى الاقتباس في النص الأصلي">' + (s.ci + 1) + "</button>";
+      const ttl = "الانتقال إلى الاقتباس في الملف الأصلي" + (s.pg ? " (صفحة " + s.pg + ")" : "");
+      return '<button type="button" class="cite" data-i="' + s.ci + '" title="' + ttl + '">' + (s.ci + 1) + "</button>";
     }
     let t = escapeHtml(s.t);
     if (s.b) t = "<strong>" + t + "</strong>";
@@ -443,7 +486,7 @@ function blocksToDocxBlocks(blocks) {
 }
 
 /* ===== البحث عن الاقتباس في النص الأصلي ===== */
-const SKIP_RE = /[\u064B-\u0652\u0670\u0640\u200B-\u200F\uFEFF]/;
+const SKIP_RE = /[\u064B-\u065F\u0670\u0640\u200B-\u200F\uFEFF]/;
 const PUNCT_RE = /[«»"'“”‘’`()\[\]{}.,،؛;:!?؟•\u2013\u2014-]/;
 
 function normalizeWithMap(s) {
@@ -453,7 +496,17 @@ function normalizeWithMap(s) {
   for (let i = 0; i < s.length; i++) {
     let ch = s[i];
     if (SKIP_RE.test(ch)) continue;
+    /* وحّد صور الحروف العربية المتصلة (Presentation Forms) والنص المركب */
+    try {
+      const nf = ch.normalize("NFKC");
+      if (nf && nf !== ch) {
+        for (let k = 0; k < nf.length; k++) { out.push(nf[k]); map.push(i); }
+        prevSpace = false;
+        continue;
+      }
+    } catch (e) {}
     if (ch === "\u0623" || ch === "\u0625" || ch === "\u0622" || ch === "\u0671") ch = "\u0627";
+    else if (ch === "\u0626" || ch === "\u06CC") ch = "\u064A";
     else if (ch === "\u0649") ch = "\u064A";
     else if (ch === "\u0629") ch = "\u0647";
     if (/\s/.test(ch)) {
@@ -471,16 +524,20 @@ function normalizeWithMap(s) {
   return { s: out.join(""), map };
 }
 
+function findNormalized(source, nq) {
+  const srcN = normalizeWithMap(source);
+  const idx = srcN.s.indexOf(nq);
+  if (idx < 0) return null;
+  return { start: srcN.map[idx], end: srcN.map[idx + nq.length - 1] + 1 };
+}
+
 function findQuote(source, quote) {
   const q0 = String(quote || "").trim();
   if (!q0) return null;
-  const srcN = normalizeWithMap(source);
   const tryFind = (cand) => {
     const n = normalizeWithMap(cand).s.trim();
     if (n.length < 6) return null;
-    const idx = srcN.s.indexOf(n);
-    if (idx < 0) return null;
-    return { start: srcN.map[idx], end: srcN.map[idx + n.length - 1] + 1 };
+    return findNormalized(source, n);
   };
   const segments = q0.split(/[…]+|\.{3,}/).map(x => x.trim()).filter(Boolean);
   const tries = [q0].concat(segments);
@@ -498,6 +555,301 @@ function findQuote(source, quote) {
     }
   }
   return null;
+}
+
+/* ===== فهرس صفحات ملف الPDF (pdf.js) ===== */
+let pdfjsLib = null;
+async function ensurePdfjs() {
+  if (!pdfjsLib) {
+    const lib = await import("./vendor/pdf.min.mjs");
+    lib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.min.mjs";
+    pdfjsLib = lib;
+  }
+  return pdfjsLib;
+}
+
+async function ensurePdfDoc(url) {
+  if (currentSource._pdfDoc) return currentSource._pdfDoc;
+  if (!currentSource._pdfDocP) {
+    currentSource._pdfDocP = (async () => {
+      const lib = await ensurePdfjs();
+      const doc = await lib.getDocument(url).promise;
+      currentSource._pdfDoc = doc;
+      return doc;
+    })();
+  }
+  return currentSource._pdfDocP;
+}
+
+async function buildPdfIndex() {
+  if (currentSource._pdfIndex) return currentSource._pdfIndex;
+  if (currentSource._pdfIndexP) return currentSource._pdfIndexP;
+  currentSource._pdfIndexP = (async () => {
+    const doc = await ensurePdfDoc(currentSource.url);
+    const pages = [];
+    let chars = 0;
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const tc = await page.getTextContent();
+      const items = [];
+      let textA = "", textB = "";
+      for (const it of tc.items) {
+        const str = it.str || "";
+        if (!str) continue;
+        const rec = { str, tr: it.transform, w: it.width || 0, h: it.height || 0 };
+        rec.startA = textA.length; textA += str; rec.endA = textA.length;
+        if (textB) textB += " ";
+        rec.startB = textB.length; textB += str; rec.endB = textB.length;
+        items.push(rec);
+      }
+      chars += textA.replace(/\s+/g, "").length;
+      pages.push({ textA, textB, items, normA: normalizeWithMap(textA), normB: normalizeWithMap(textB) });
+    }
+    const idx = { pages, hasText: chars > 40 };
+    currentSource._pdfIndex = idx;
+    return idx;
+  })();
+  return currentSource._pdfIndexP;
+}
+
+function warmPdfIndex() {
+  if (currentSource.kind !== "pdf" || !currentSource.url) return;
+  setTimeout(() => { buildPdfIndex().catch(() => {}); }, 400);
+}
+
+/* بعض ملفات PDF العربية تخرج بتبادل (أل/لا) واختلاف مسافات بين العناصر.
+   نقبل الحالتين عند البحث، مع الاحتفاظ بأرقام المواضع الحقيقية للتظليل. */
+function foldAr(s) {
+  return String(s || "").split("\u0627\u0627\u0644").join("\u0627\u0644\u0627");
+}
+
+function findSpanInNorm(sn, nq) {
+  let idx = sn.s.indexOf(nq);
+  if (idx >= 0) return { start: sn.map[idx], end: sn.map[idx + nq.length - 1] + 1 };
+  const fq = foldAr(nq);
+  const fs = foldAr(sn.s);
+  if (fs !== sn.s) {
+    idx = fs.indexOf(fq);
+    if (idx >= 0) return { start: sn.map[idx], end: sn.map[idx + fq.length - 1] + 1 };
+  }
+  return null;
+}
+
+function findQuoteInIndex(idx, quote) {
+  if (!idx || !idx.hasText) return null;
+  const nq = normalizeWithMap(String(quote || "")).s.trim();
+  if (nq.length >= 6) {
+    for (let i = 0; i < idx.pages.length; i++) {
+      const pg = idx.pages[i];
+      if (!pg.normA) continue;
+      let hit = findSpanInNorm(pg.normA, nq);
+      if (hit) return { page: i + 1, start: hit.start, end: hit.end, variant: "A" };
+      hit = findSpanInNorm(pg.normB, nq);
+      if (hit) return { page: i + 1, start: hit.start, end: hit.end, variant: "B" };
+    }
+  }
+  for (let i = 0; i < idx.pages.length; i++) {
+    const pg = idx.pages[i];
+    for (const area of ["textA", "textB"]) {
+      const t = pg[area];
+      if (!t) continue;
+      const hit = findQuote(t, quote);
+      if (hit) return { page: i + 1, start: hit.start, end: hit.end, variant: area === "textA" ? "A" : "B" };
+    }
+  }
+  return null;
+}
+
+/* رقم الصفحة المعروف لاقتباس (من الفهرس المحسوب أو من رقم الموديل) */
+function pageForQuote(quoteText, hintPg) {
+  const idx = currentSource && currentSource._pdfIndex;
+  if (idx && idx.hasText) {
+    const hit = findQuoteInIndex(idx, quoteText);
+    if (hit) return hit.page;
+  }
+  return hintPg || null;
+}
+
+/* ===== عارض الملفات (نافذة كبيرة) ===== */
+const viewer = { open: false, kind: "pdf", doc: null, page: 1, pages: 0, zoom: 0, base: 0, hl: null, token: 0 };
+
+function openViewerShell() {
+  viewer.open = true;
+  show($("viewer"), true);
+  document.body.classList.add("modal-open");
+  setTimeout(() => { try { $("vwClose").focus(); } catch (e) {} }, 30);
+}
+function closeViewer() {
+  viewer.open = false;
+  viewer.token++;
+  show($("viewer"), false);
+  document.body.classList.remove("modal-open");
+  $("vwStage").innerHTML = "";
+}
+function setVwQuote(c) {
+  const q = $("vwQuote");
+  if (c && c.text) {
+    q.textContent = "الاقتباس: «" + c.text + "»" + (c.pg ? "  (رقم الصفحة من المصدر: " + c.pg + ")" : "");
+    q.classList.remove("hidden");
+  } else {
+    q.textContent = "";
+    q.classList.add("hidden");
+  }
+}
+function setVwNote(msg) {
+  const n = $("vwNote");
+  n.textContent = msg || "";
+  n.classList.toggle("hidden", !msg);
+}
+
+async function openCiteViewer(c) {
+  const src = currentSource || {};
+  openViewerShell();
+  $("vwTitle").textContent = src.name || "الملف الأصلي";
+  setVwQuote(c);
+  setVwNote("");
+  if (src.kind === "image" && src.url) {
+    viewer.kind = "image";
+    viewer.doc = null;
+    viewer.hl = null;
+    show($("vwNav"), false);
+    show($("vwZoom"), false);
+    $("vwStage").innerHTML = '<img class="vwimg" alt="' + escapeHtml(src.name || "الملف الأصلي") + '" src="' + src.url + '">';
+    return;
+  }
+  if (src.kind !== "pdf" || !src.url) {
+    $("vwStage").innerHTML = "";
+    show($("vwNav"), false);
+    show($("vwZoom"), false);
+    setVwNote("الملف الأصلي غير محفوظ في هذه الجلسة. نص الاقتباس موجود بالأعلى.");
+    return;
+  }
+  viewer.kind = "pdf";
+  show($("vwNav"), true);
+  show($("vwZoom"), true);
+  try {
+    const doc = await ensurePdfDoc(src.url);
+    viewer.doc = doc;
+    viewer.pages = doc.numPages;
+    viewer.zoom = 0;
+    viewer.hl = null;
+    let page = c && c.pg ? Math.min(c.pg, doc.numPages) : 1;
+    try {
+      const idx = await buildPdfIndex();
+      if (idx && idx.hasText && c && c.text) {
+        const hit = findQuoteInIndex(idx, c.text);
+        if (hit) {
+          viewer.hl = hit;
+          page = hit.page;
+        } else if (c.pg) {
+          setVwNote("تم فتح الصفحة من رقم المصدر، لكن تعذر تحديد الموضع بالضبط داخل الصفحة.");
+        } else {
+          setVwNote("تعذر تحديد صفحة الاقتباس في الملف. يمكنك التنقل بين الصفحات بالأزرار أعلى العارض.");
+        }
+      } else if (idx && !idx.hasText) {
+        setVwNote("الملف يبدو ممسوحًا ضوئيًا بدون نص قابل للبحث، لذا التنقل هنا يدوي بين الصفحات." + (c && c.pg ? " رقم الصفحة من المصدر: " + c.pg + "." : ""));
+      }
+    } catch (e) {}
+    viewer.page = Math.max(1, Math.min(page || 1, viewer.pages));
+    await renderViewerPage(true);
+  } catch (e) {
+    $("vwStage").innerHTML = "";
+    setVwNote("تعذر عرض الملف داخل العارض. جرّب زر فتح الملف في تبويب جديد.");
+  }
+}
+
+function hlBoxes(hl, vp) {
+  const idx = currentSource._pdfIndex;
+  if (!idx || !idx.pages[hl.page - 1]) return [];
+  const page = idx.pages[hl.page - 1];
+  const useB = hl.variant === "B";
+  const items = [];
+  for (const it of page.items) {
+    const s0 = useB ? it.startB : it.startA;
+    const e0 = useB ? it.endB : it.endA;
+    if (e0 <= hl.start) continue;
+    if (s0 >= hl.end) break;
+    items.push(it);
+  }
+  if (!items.length) return [];
+  const boxes = items.map((it) => {
+    const m = pdfjsLib.Util.transform(vp.transform, it.tr);
+    const h = Math.abs(m[3]) || Math.abs(m[1]) || (it.h || 10) * vp.scale;
+    const w = Math.max(4, it.w * vp.scale);
+    return { x: m[4], y: m[5] - h, w, h };
+  });
+  boxes.sort((a, b) => a.y - b.y || a.x - b.x);
+  const lines = [];
+  for (const b of boxes) {
+    const cy = b.y + b.h / 2;
+    const ln = lines.find((l) => Math.abs((l.y + l.h / 2) - cy) < Math.max(6, b.h * 0.7));
+    if (ln) {
+      const right = Math.max(ln.x + ln.w, b.x + b.w);
+      ln.x = Math.min(ln.x, b.x);
+      ln.y = Math.min(ln.y, b.y);
+      ln.w = right - ln.x;
+      ln.h = Math.max(ln.h, (b.y + b.h) - ln.y);
+    } else {
+      lines.push({ x: b.x, y: b.y, w: b.w, h: b.h });
+    }
+  }
+  return lines.map((l) => ({ x: l.x - 3, y: l.y - 2, w: l.w + 6, h: l.h + 4 }));
+}
+
+async function renderViewerPage(resetZoom) {
+  if (viewer.kind !== "pdf" || !viewer.doc) return;
+  const t = ++viewer.token;
+  const stage = $("vwStage");
+  let page;
+  try { page = await viewer.doc.getPage(viewer.page); } catch (e) { return; }
+  if (t !== viewer.token) return;
+  const vw = page.getViewport({ scale: 1 });
+  const wrapW = Math.max(320, $("vwBody").clientWidth - 28);
+  viewer.base = Math.min(wrapW / vw.width, 2.4);
+  if (resetZoom || !viewer.zoom) viewer.zoom = viewer.base;
+  const vp = page.getViewport({ scale: viewer.zoom });
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  stage.innerHTML = "";
+  const cv = document.createElement("canvas");
+  cv.className = "vwcv";
+  cv.width = Math.floor(vp.width * dpr);
+  cv.height = Math.floor(vp.height * dpr);
+  cv.style.width = vp.width + "px";
+  cv.style.height = vp.height + "px";
+  stage.appendChild(cv);
+  const task = page.render({
+    canvasContext: cv.getContext("2d"),
+    viewport: vp,
+    transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined
+  });
+  try { await task.promise; } catch (e) {}
+  if (t !== viewer.token) return;
+  if (viewer.hl && viewer.hl.page === viewer.page) {
+    for (const b of hlBoxes(viewer.hl, vp)) {
+      const d = document.createElement("div");
+      d.className = "vwhl";
+      d.style.left = b.x + "px";
+      d.style.top = b.y + "px";
+      d.style.width = b.w + "px";
+      d.style.height = b.h + "px";
+      stage.appendChild(d);
+    }
+  }
+  $("vwPage").textContent = "صفحة " + viewer.page + " من " + viewer.pages;
+  $("vwPrev").disabled = viewer.page <= 1;
+  $("vwNext").disabled = viewer.page >= viewer.pages;
+}
+
+function viewerGo(delta) {
+  const np = Math.max(1, Math.min(viewer.page + delta, viewer.pages));
+  if (np === viewer.page) return;
+  viewer.page = np;
+  renderViewerPage(true);
+}
+function viewerZoom(mult) {
+  if (viewer.kind !== "pdf" || !viewer.doc) return;
+  viewer.zoom = Math.max(viewer.base * 0.5, Math.min((viewer.zoom || viewer.base) * mult, viewer.base * 5));
+  renderViewerPage(false);
 }
 
 /* ===== الاقتباسات والتنقل ===== */
@@ -528,8 +880,8 @@ function highlightSource(start, end) {
 }
 function jumpToCite(btn) {
   const i = Number(btn.getAttribute("data-i"));
-  const q = currentCites[i];
-  if (!q) return;
+  const c = currentCites[i];
+  if (!c) return;
   if (btn.nextElementSibling && btn.nextElementSibling.classList.contains("bubble")) {
     btn.nextElementSibling.remove();
     return;
@@ -537,17 +889,14 @@ function jumpToCite(btn) {
   clearBubbles();
   const src = currentSource || { kind: "none" };
   if (src.kind === "text" && src.text) {
-    const hit = findQuote(src.text, q);
+    const hit = findQuote(src.text, c.text);
     if (hit) { highlightSource(hit.start, hit.end); return; }
-    showBubble(btn, q, "لم يُعثر على الاقتباس حرفيًا في النص. نص الاقتباس:");
+    showBubble(btn, c.text, "لم يُعثر على الاقتباس حرفيًا في النص. نص الاقتباس:");
     return;
   }
-  if ((src.kind === "pdf" || src.kind === "image") && src.url) {
-    $("sourceCard").scrollIntoView({ behavior: "smooth", block: "center" });
-    showBubble(btn, q, src.kind === "pdf" ? "الاقتباس من ملف الـPDF الأصلي:" : "الاقتباس من الصورة الأصلية:");
-    return;
-  }
-  showBubble(btn, q, "النص الأصلي غير متاح في هذه الجلسة. نص الاقتباس:");
+  if (src.kind === "pdf" && src.url) { openCiteViewer(c); return; }
+  if (src.kind === "image" && src.url) { openCiteViewer(c); return; }
+  showBubble(btn, c.text, "النص الأصلي غير متاح في هذه الجلسة. نص الاقتباس:");
 }
 
 /* ===== عرض النتائج ===== */
@@ -555,12 +904,14 @@ function renderSource(src) {
   const card = $("sourceCard");
   const body = $("sourceBody");
   const open = $("btnSrcOpen");
+  const big = $("btnSrcViewer");
   const note = $("srcNote");
   src = src || { kind: "none" };
   if (src.kind === "none") { show(card, false); return; }
   body.innerHTML = "";
   note.classList.add("hidden");
   open.classList.add("hidden");
+  big.classList.add("hidden");
   if (src.kind === "text" && src.text) {
     const d = document.createElement("div");
     d.className = "srctext";
@@ -576,7 +927,12 @@ function renderSource(src) {
     f.src = src.url + "#view=FitH";
     body.appendChild(f);
     open.classList.remove("hidden");
+    big.classList.remove("hidden");
     open.onclick = () => window.open(src.url, "_blank");
+    big.onclick = () => openCiteViewer(null);
+    note.textContent = "اضغط على أي رقم مصدر في الملخص للانتقال إلى صفحة الاقتباس داخل الملف، أو استخدم زر العارض الكبير.";
+    note.classList.remove("hidden");
+    warmPdfIndex();
   } else if (src.url && src.kind === "image") {
     const img = document.createElement("img");
     img.className = "srcimg";
@@ -584,7 +940,11 @@ function renderSource(src) {
     img.src = src.url;
     body.appendChild(img);
     open.classList.remove("hidden");
+    big.classList.remove("hidden");
     open.onclick = () => window.open(src.url, "_blank");
+    big.onclick = () => openCiteViewer(null);
+    note.textContent = "اضغط على أي رقم مصدر في الملخص لعرض الصورة في العارض الكبير.";
+    note.classList.remove("hidden");
   } else {
     note.textContent = "الملف الأصلي غير محفوظ في السجل. أعد رفع الملف لعرضه والتنقل منه.";
     note.classList.remove("hidden");
@@ -592,45 +952,100 @@ function renderSource(src) {
   show(card, true);
 }
 
-function buildPrintRoot() {
+/* ===== بناء المستندات (طباعة / تنسيقات) ===== */
+function refLabel(q, i) {
+  const pg = pageForQuote(q.text, q.pg);
+  return { n: i + 1, text: q.text, pg };
+}
+
+function sectionHtml(ctx, blocks, autoDir) {
+  return blocksToHtml(blocks, "print", autoDir);
+}
+
+function buildPrintRoot(which) {
+  which = which || "full";
   const root = $("printRoot");
-  if (!last.summary && !last.translation) {
+  if (!last.summary && !last.summaryEn && !last.translation) {
     root.innerHTML = '<p class="pr-meta">لا يوجد ملخص بعد. أنشئ ملخصًا أولًا ثم اطبع.</p>';
     return;
   }
-  const ctx = { n: 0, quotes: [] };
-  const sHtml = blocksToHtml(parseBlocksMd(last.summary, ctx), "print");
-  const tctx = { n: 0, quotes: [] };
-  const tHtml = blocksToHtml(parseBlocksMd(stripCiteMarks(last.translation), tctx), "print", true);
-  let refsHtml = "";
-  if (ctx.quotes.length) {
-    refsHtml = '<div class="pr-h5">المراجع (اقتباسات من النص الأصلي)</div>' +
-      ctx.quotes.map((q, i) => '<div class="pr-ref"><span class="pr-rn">[' + (i + 1) + "]</span> «" + escapeHtml(q) + "»</div>").join("");
-  }
+  const sumCtx = { n: 0, quotes: [] };
+  const sumBlocks = parseBlocksMd(last.summary, sumCtx);
+  const enCtx = { n: 0, quotes: [] };
+  const enBlocks = last.summaryEn ? parseBlocksMd(stripCiteMarks(last.summaryEn), enCtx) : [];
+  const trCtx = { n: 0, quotes: [] };
+  const trBlocks = last.translation ? parseBlocksMd(stripCiteMarks(last.translation), trCtx) : [];
+
+  const titleText = which === "summary" ? "ملخص قضية"
+    : which === "summaryEn" ? "English Summary"
+    : which === "translation" ? "ترجمة قضية"
+    : "ملخص وترجمة قضية";
   const metaBits = [dateAr()];
   if (currentSource && currentSource.name) metaBits.push("المصدر: " + currentSource.name);
+
+  let refsHtml = "";
+  if ((which === "full" || which === "summary") && sumCtx.quotes.length) {
+    refsHtml = '<div class="pr-h5">المراجع (اقتباسات من النص الأصلي)</div>' +
+      sumCtx.quotes.map((q, i) => {
+        const r = refLabel(q, i);
+        return '<div class="pr-ref"><span class="pr-rn">[' + r.n + "]</span> «" + escapeHtml(r.text) + "»" +
+          (r.pg ? ' <span class="pr-rpg">(صفحة ' + r.pg + ")</span>" : "") + "</div>";
+      }).join("");
+  }
+
+  const parts = [];
+  if (which === "full" || which === "summary") {
+    parts.push('<div class="pr-h3">الملخص</div>' + sectionHtml(sumCtx, sumBlocks) + refsHtml);
+  }
+  if ((which === "full" || which === "summaryEn") && enBlocks.length) {
+    const enHead = '<div class="pr-h3">English Summary</div>' + sectionHtml(enCtx, enBlocks, true);
+    parts.push(which === "full" ? '<div class="pr-newpage"></div>' + enHead : enHead);
+  }
+  if ((which === "full" || which === "translation") && trBlocks.length) {
+    const trHead = '<div class="pr-h3">الترجمة</div>' + sectionHtml(trCtx, trBlocks, true);
+    parts.push(which === "full" ? '<div class="pr-newpage"></div>' + trHead : trHead);
+  }
+
   root.innerHTML =
-    '<div class="pr-title">ملخص وترجمة قضية</div>' +
+    '<div class="pr-brand">مساعد القضايا</div>' +
+    '<div class="pr-title">' + titleText + "</div>" +
     '<div class="pr-meta">' + escapeHtml(metaBits.join(" | ")) + "</div>" +
-    '<div class="pr-h3">الملخص</div>' + sHtml + refsHtml +
-    '<hr class="pr-sep">' +
-    '<div class="pr-h3">الترجمة</div>' + tHtml;
+    parts.join("");
 }
 
+/* ===== العرض ===== */
 function showResult(parsed, source) {
-  last = { summary: (parsed && parsed.summary) || "", translation: (parsed && parsed.translation) || "" };
+  last = {
+    summary: (parsed && parsed.summary) || "",
+    summaryEn: (parsed && parsed.summaryEn) || "",
+    translation: (parsed && parsed.translation) || ""
+  };
   currentSource = source || { kind: "none" };
   const ctx = { n: 0, quotes: [] };
   $("summaryOut").innerHTML = blocksToHtml(parseBlocksMd(last.summary, ctx), "screen");
   currentCites = ctx.quotes;
-  const tctx = { n: 0, quotes: [] };
+  const hasEn = !!last.summaryEn.trim();
+  show($("enCard"), hasEn);
+  $("enOut").innerHTML = hasEn ? blocksToHtml(parseBlocksMd(stripCiteMarks(last.summaryEn), { n: 0, quotes: [] }), "screen", true) : "";
   const trSrc = stripCiteMarks(last.translation) || "(لا توجد ترجمة)";
-  $("transOut").innerHTML = blocksToHtml(parseBlocksMd(trSrc, tctx), "screen", true);
+  $("transOut").innerHTML = blocksToHtml(parseBlocksMd(trSrc, { n: 0, quotes: [] }), "screen", true);
   show($("citeHint"), ctx.quotes.length > 0);
   renderSource(currentSource);
-  buildPrintRoot();
+  refreshDownloadRows();
+  buildPrintRoot("full");
   show($("output"), true);
   $("output").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function refreshDownloadRows() {
+  const hasSum = !!(last.summary && last.summary.trim());
+  const hasEn = !!(last.summaryEn && last.summaryEn.trim());
+  const hasTr = !!(last.translation && last.translation.trim());
+  const row = (w) => document.querySelector('.dl-row[data-w="' + w + '"]');
+  show(row("full"), hasSum || hasEn || hasTr);
+  show(row("summary"), hasSum);
+  show(row("summaryEn"), hasEn);
+  show(row("translation"), hasTr);
 }
 
 /* ===== السجل ===== */
@@ -643,6 +1058,7 @@ function saveHistory(srcTitle, parsed, model, src) {
     t: Date.now(),
     title: String(srcTitle || "").replace(/\s+/g, " ").slice(0, 80),
     summary: parsed.summary,
+    summaryEn: parsed.summaryEn || "",
     translation: parsed.translation,
     model
   };
@@ -679,7 +1095,7 @@ function renderHistory() {
       let src = { kind: "none" };
       if (it.srcKind === "text" && it.srcText) src = { kind: "text", text: it.srcText, name: it.srcName || "" };
       else if (it.srcKind && it.srcKind !== "none") src = { kind: it.srcKind, name: it.srcName || "", url: null };
-      showResult({ summary: it.summary || "", translation: it.translation || "" }, src);
+      showResult({ summary: it.summary || "", summaryEn: it.summaryEn || "", translation: it.translation || "" }, src);
     });
     const d = document.createElement("span");
     d.className = "muted";
@@ -691,36 +1107,64 @@ function renderHistory() {
 }
 
 /* ===== التصدير ===== */
-function buildDocxBytes() {
-  const ctx = { n: 0, quotes: [] };
-  const sumBlocks = blocksToDocxBlocks(parseBlocksMd(last.summary, ctx));
-  const tctx = { n: 0, quotes: [] };
-  const trBlocks = blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.translation), tctx));
+const DL_NAMES = {
+  full: { word: "الملف-الكامل", print: "الملف-الكامل" },
+  summary: { word: "ملخص-قضية", print: "ملخص-قضية" },
+  summaryEn: { word: "English-Summary", print: "English-Summary" },
+  translation: { word: "ترجمة-قضية", print: "ترجمة-قضية" }
+};
+
+function buildDocxBytes(which) {
+  which = which || "full";
+  const sumCtx = { n: 0, quotes: [] };
+  const sumBlocks = last.summary ? blocksToDocxBlocks(parseBlocksMd(last.summary, sumCtx)) : [];
+  const enBlocks = last.summaryEn ? blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.summaryEn), { n: 0, quotes: [] })) : [];
+  const trBlocks = last.translation ? blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.translation), { n: 0, quotes: [] })) : [];
+
+  const titleText = which === "summary" ? "ملخص قضية"
+    : which === "summaryEn" ? "English Summary"
+    : which === "translation" ? "ترجمة قضية"
+    : "ملخص وترجمة قضية";
   const blocks = [
-    { k: "title", runs: [{ t: "ملخص وترجمة قضية" }] },
-    { k: "meta", runs: [{ t: dateAr() + (currentSource && currentSource.name ? " | المصدر: " + currentSource.name : "") }] },
-    { k: "h2", runs: [{ t: "الملخص" }] }
-  ].concat(sumBlocks);
-  if (ctx.quotes.length) {
-    blocks.push({ k: "h3", runs: [{ t: "المراجع (اقتباسات من النص الأصلي)" }] });
-    ctx.quotes.forEach((q, i) => {
-      blocks.push({ k: "ref", runs: [{ t: "[" + (i + 1) + "] ", b: true }, { t: "«" + q + "»", i: true }] });
-    });
+    { k: "title", runs: [{ t: titleText }] },
+    { k: "meta", runs: [{ t: [dateAr()].concat(currentSource && currentSource.name ? ["المصدر: " + currentSource.name] : []).join(" | ") }] }
+  ];
+  if (which === "full" || which === "summary") {
+    blocks.push({ k: "h2", runs: [{ t: "الملخص" }] });
+    for (const b of sumBlocks) blocks.push(b);
+    if (sumCtx.quotes.length) {
+      blocks.push({ k: "h3", runs: [{ t: "المراجع (اقتباسات من النص الأصلي)" }] });
+      sumCtx.quotes.forEach((q, i) => {
+        const r = refLabel(q, i);
+        blocks.push({ k: "ref", runs: [{ t: "[" + r.n + "] ", b: true }, { t: "«" + r.text + "»" }].concat(r.pg ? [{ t: " (صفحة " + r.pg + ")", c: "64748B" }] : []) });
+      });
+    }
   }
-  blocks.push({ k: "sep" });
-  blocks.push({ k: "h2", runs: [{ t: "الترجمة" }] });
-  return QADocx.build({ blocks: blocks.concat(trBlocks) });
+  if ((which === "full" || which === "summaryEn") && enBlocks.length) {
+    if (which === "full") blocks.push({ k: "brk" });
+    blocks.push({ k: "h2", runs: [{ t: "English Summary" }] });
+    for (const b of enBlocks) blocks.push(b);
+  }
+  if ((which === "full" || which === "translation") && trBlocks.length) {
+    if (which === "full") blocks.push({ k: "brk" });
+    blocks.push({ k: "h2", runs: [{ t: "الترجمة" }] });
+    for (const b of trBlocks) blocks.push(b);
+  }
+  return QADocx.build({ blocks });
 }
 
-function exportWord() {
-  if (!last.summary && !last.translation) { setStatus("لا يوجد ملخص للتحميل بعد", true); return; }
+function anyContent() { return !!(last.summary || last.summaryEn || last.translation); }
+
+function exportWord(which) {
+  which = which || "full";
+  if (!anyContent()) { setStatus("لا يوجد ملخص للتحميل بعد", true); return; }
   try {
-    const bytes = buildDocxBytes();
+    const bytes = buildDocxBytes(which);
     const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "ملخص-قضية-" + new Date().toISOString().slice(0, 10) + ".docx";
+    a.download = (DL_NAMES[which] || DL_NAMES.full).word + "-" + isoDate() + ".docx";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -730,11 +1174,12 @@ function exportWord() {
   }
 }
 
-function printExport() {
-  if (!last.summary && !last.translation) { setStatus("لا يوجد ملخص للطباعة بعد", true); return; }
-  buildPrintRoot();
+function printExport(which) {
+  which = which || "full";
+  if (!anyContent()) { setStatus("لا يوجد ملخص للطباعة بعد", true); return; }
+  buildPrintRoot(which);
   const oldTitle = document.title;
-  document.title = "ملخص-قضية-" + new Date().toISOString().slice(0, 10);
+  document.title = (DL_NAMES[which] || DL_NAMES.full).print + "-" + isoDate();
   const restore = () => {
     document.title = oldTitle;
     window.removeEventListener("afterprint", restore);
@@ -862,7 +1307,9 @@ function init() {
   document.querySelectorAll("[data-copy]").forEach((b) => {
     b.addEventListener("click", async () => {
       const which = b.getAttribute("data-copy");
-      const t = which === "summary" ? stripCitesForCopy(last.summary) : stripCitesForCopy(last.translation);
+      const t = which === "summary" ? stripCitesForCopy(last.summary)
+        : which === "summaryEn" ? stripCitesForCopy(last.summaryEn)
+        : stripCitesForCopy(last.translation);
       try {
         await navigator.clipboard.writeText(t);
         const old = b.textContent;
@@ -877,15 +1324,40 @@ function init() {
     if (btn) jumpToCite(btn);
   });
 
-  $("btnWord").addEventListener("click", exportWord);
-  $("btnPrint").addEventListener("click", printExport);
+  /* مركز التحميل */
+  const dl = $("downloadCard");
+  if (dl) {
+    dl.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-dl]");
+      if (!b) return;
+      const which = b.getAttribute("data-dl");
+      const fmt = b.getAttribute("data-fmt");
+      if (fmt === "word") exportWord(which);
+      else printExport(which);
+    });
+  }
+
+  /* العارض */
+  $("vwClose").addEventListener("click", closeViewer);
+  $("vwPrev").addEventListener("click", () => viewerGo(-1));
+  $("vwNext").addEventListener("click", () => viewerGo(1));
+  $("vwZoomIn").addEventListener("click", () => viewerZoom(1.25));
+  $("vwZoomOut").addEventListener("click", () => viewerZoom(0.8));
+  $("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
+  document.addEventListener("keydown", (e) => {
+    if (!viewer.open) return;
+    if (e.key === "Escape") closeViewer();
+    else if (e.key === "ArrowLeft") viewerGo(1);
+    else if (e.key === "ArrowRight") viewerGo(-1);
+  });
+
   $("btnClearHistory").addEventListener("click", () => {
     localStorage.removeItem(LS.history);
     renderHistory();
   });
 
   renderHistory();
-  buildPrintRoot();
+  buildPrintRoot("full");
   if (keyFor(provider())) refreshModels(true);
 }
 

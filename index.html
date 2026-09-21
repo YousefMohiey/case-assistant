@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>مساعد القضايا | تلخيص وترجمة</title>
 <link rel="stylesheet" href="app.css">
 </head>
@@ -97,9 +98,18 @@
         <h2>الملخص</h2>
         <button class="ghost small" type="button" data-copy="summary">نسخ</button>
       </div>
-      <p id="citeHint" class="muted cite-hint hidden">اضغط على رقم المصدر بجانب أي نقطة للانتقال إلى الجزء الأصلي من القضية.</p>
+      <p id="citeHint" class="muted cite-hint hidden">اضغط على رقم المصدر بجانب أي نقطة للانتقال إلى صفحة الاقتباس داخل الملف الأصلي.</p>
       <div id="summaryOut" class="out"></div>
     </div>
+
+    <div id="enCard" class="card hidden">
+      <div class="row between">
+        <h2>English Summary</h2>
+        <button class="ghost small" type="button" data-copy="summaryEn">نسخ</button>
+      </div>
+      <div id="enOut" class="out" dir="auto"></div>
+    </div>
+
     <div class="card">
       <div class="row between">
         <h2>الترجمة</h2>
@@ -107,18 +117,64 @@
       </div>
       <div id="transOut" class="out" dir="auto"></div>
     </div>
+
     <div id="sourceCard" class="card hidden">
-      <div class="row between">
+      <div class="row between wrap">
         <h2>النص الأصلي</h2>
-        <button id="btnSrcOpen" class="ghost small hidden" type="button">فتح الملف في تبويب</button>
+        <div class="row">
+          <button id="btnSrcViewer" class="ghost small hidden" type="button">العارض الكبير</button>
+          <button id="btnSrcOpen" class="ghost small hidden" type="button">فتح الملف في تبويب</button>
+        </div>
       </div>
       <div id="sourceBody"></div>
       <p id="srcNote" class="muted hidden"></p>
     </div>
-    <div class="row wrap">
-      <button id="btnWord" class="ghost" type="button">تحميل Word</button>
-      <button id="btnPrint" class="ghost" type="button">حفظ PDF / طباعة</button>
-      <span class="muted">اختر "الحفظ كـ PDF" في نافذة الطباعة.</span>
+
+    <div class="card" id="downloadCard">
+      <h2>تحميل الملفات</h2>
+      <p class="muted dl-hint">كل ملف متاح بصيغتين: Word للتحرير، وPDF للطباعة. زر PDF يفتح نافذة الطباعة، اختر منها "الحفظ كـ PDF".</p>
+      <div class="dl-list">
+        <div class="dl-row" data-w="full">
+          <div class="dl-info">
+            <span class="dl-name">الملف الكامل</span>
+            <span class="dl-sub">الملخص + English Summary + الترجمة + المراجع</span>
+          </div>
+          <div class="dl-acts">
+            <button class="ghost small" type="button" data-dl="full" data-fmt="word">Word</button>
+            <button class="ghost small" type="button" data-dl="full" data-fmt="pdf">PDF</button>
+          </div>
+        </div>
+        <div class="dl-row" data-w="summary">
+          <div class="dl-info">
+            <span class="dl-name">الملخص فقط</span>
+            <span class="dl-sub">الملخص العربي مع المراجع والاقتباسات</span>
+          </div>
+          <div class="dl-acts">
+            <button class="ghost small" type="button" data-dl="summary" data-fmt="word">Word</button>
+            <button class="ghost small" type="button" data-dl="summary" data-fmt="pdf">PDF</button>
+          </div>
+        </div>
+        <div class="dl-row" data-w="summaryEn">
+          <div class="dl-info">
+            <span class="dl-name">الملخص بالإنجليزية</span>
+            <span class="dl-sub">English Summary</span>
+          </div>
+          <div class="dl-acts">
+            <button class="ghost small" type="button" data-dl="summaryEn" data-fmt="word">Word</button>
+            <button class="ghost small" type="button" data-dl="summaryEn" data-fmt="pdf">PDF</button>
+          </div>
+        </div>
+        <div class="dl-row" data-w="translation">
+          <div class="dl-info">
+            <span class="dl-name">الترجمة الكاملة فقط</span>
+            <span class="dl-sub">النص المترجم بالكامل بدون ملخص</span>
+          </div>
+          <div class="dl-acts">
+            <button class="ghost small" type="button" data-dl="translation" data-fmt="word">Word</button>
+            <button class="ghost small" type="button" data-dl="translation" data-fmt="pdf">PDF</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -136,6 +192,33 @@
 </footer>
 
 <div id="printRoot" class="print-root" aria-hidden="true"></div>
+
+<div id="viewer" class="viewer hidden" role="dialog" aria-modal="true" aria-label="عارض الملف الأصلي">
+  <div class="viewer-panel">
+    <div class="viewer-bar">
+      <div class="vw-left">
+        <button id="vwClose" class="ghost small" type="button">✕ إغلاق</button>
+        <span id="vwTitle" class="vw-title"></span>
+      </div>
+      <div class="vw-right">
+        <div id="vwZoom" class="vw-group">
+          <button id="vwZoomOut" class="ghost small" type="button">تصغير</button>
+          <button id="vwZoomIn" class="ghost small" type="button">تكبير</button>
+        </div>
+        <div id="vwNav" class="vw-group">
+          <button id="vwPrev" class="ghost small" type="button">الصفحة السابقة</button>
+          <span id="vwPage" class="vw-page"></span>
+          <button id="vwNext" class="ghost small" type="button">الصفحة التالية</button>
+        </div>
+      </div>
+    </div>
+    <div id="vwBody" class="viewer-body">
+      <div id="vwStage" class="vw-stage"></div>
+    </div>
+    <div id="vwQuote" class="viewer-quote hidden"></div>
+    <div id="vwNote" class="viewer-note muted hidden"></div>
+  </div>
+</div>
 
 <script src="docx.js"></script>
 <script src="app.js"></script>
