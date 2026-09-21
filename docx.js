@@ -163,6 +163,9 @@
 
   var BRK_XML = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
+  var GOLD_RULE_XML = '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="2" w:color="D4A947"/></w:pBdr>' +
+    '<w:spacing w:before="20" w:after="140" w:line="240" w:lineRule="auto"/></w:pPr></w:p>';
+
   function withColor(runs, color) {
     return runs.map(function (r) { return { t: r.t, b: r.b, i: r.i, sup: r.sup, c: r.c || color }; });
   }
@@ -170,7 +173,9 @@
   function blockXml(b) {
     var runs = b.runs || [];
     switch (b.k) {
+      case "brand": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "1E3A8A"), { sz: { la: 26, cs: 28 }, jc: "center", after: 60, line: 260 }) + GOLD_RULE_XML;
       case "title": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "14213D"), { sz: SZ.title, jc: "center", after: 40, line: 300 }) + TITLE_RULE_XML;
+      case "foot": return parXml(withColor(runs, "64748B"), { sz: { la: 18, cs: 20 }, jc: "center", before: 480, after: 0, line: 240 });
       case "meta": return parXml(withColor(runs, "64748B"), { sz: SZ.meta, jc: "center", after: 300, line: 260 });
       case "h2": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "1E40AF"), { sz: SZ.h2, before: 340, after: 160, line: 280, keepNext: true, border: { color: "C7D2FE", sz: 10, space: 4 } });
       case "h3": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "334155"), { sz: SZ.h3, before: 280, after: 120, line: 280, keepNext: true });

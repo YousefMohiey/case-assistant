@@ -4,8 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#1e40af">
-<title>مساعد القضايا | تلخيص وترجمة</title>
+<meta name="theme-color" content="#1E3A8A">
+<meta name="description" content="مساعد القضايا - تلخيص وترجمة الوثائق القانونية - مكتب محمد محيي للمحاماة">
+<title>مساعد القضايا | مكتب محمد محيي للمحاماة</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -13,10 +18,12 @@
 <header>
   <div class="hdr-inner">
     <div class="brand">
-      <span class="logo">⚖️</span>
+      <span class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+      </span>
       <div class="brand-txt">
         <h1>مساعد القضايا</h1>
-        <p class="sub">تلخيص وترجمة تلقائية للقضايا والوثائق القانونية</p>
+        <p class="sub">مكتب محمد محيي للمحاماة</p>
       </div>
     </div>
     <div class="hdr-actions">
@@ -53,6 +60,7 @@
       <button id="btnToggleKey" class="ghost small" type="button">إظهار</button>
     </div>
   </label>
+  <p class="muted key-note">المفتاح يُحفظ في متصفح هذا الجهاز فقط ولا يُرسل لأي جهة غير مزود الخدمة.</p>
 
   <label class="field">الموديل
     <div class="row">
@@ -66,9 +74,9 @@
     التحويل التلقائي للمزود الآخر إذا انتهى الحد المجاني
   </label>
 
-  <div class="row">
+  <div class="row settings-actions">
     <button id="btnSave" class="primary small" type="button">حفظ</button>
-    <span id="saveStatus" class="muted"></span>
+    <span id="saveStatus" class="muted" role="status" aria-live="polite"></span>
   </div>
 
   <details>
@@ -107,7 +115,7 @@
       <button id="btnClear" class="ghost small" type="button">تفريغ</button>
     </div>
     <button id="btnRun" class="primary big" type="button">لخّص وترجم</button>
-    <div id="runStatus" class="muted status"></div>
+    <div id="runStatus" class="muted status" role="status" aria-live="polite"></div>
   </section>
 
   <section id="output" class="hidden">
@@ -207,13 +215,16 @@
 
 <footer>
   <p class="muted">خدمة داخلية مُهيّأة من مسؤول النظام. النصوص تُرسل إلى مزود الخدمة المختار فقط ولا تُخزَّن في أي مكان آخر.</p>
-  <p class="foot-brand"><span id="adminTap">مساعد القضايا</span></p>
+  <p class="foot-brand"><span id="adminTap">مساعد القضايا</span> <span class="foot-dot">•</span> مكتب محمد محيي للمحاماة</p>
 </footer>
 
 <div id="login" class="login hidden" role="dialog" aria-modal="true" aria-label="تسجيل الدخول">
   <div class="login-card">
-    <div class="login-logo">⚖️</div>
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+    </div>
     <h2>مساعد القضايا</h2>
+    <p class="login-brand">مكتب محمد محيي للمحاماة</p>
     <p class="login-sub">اكتب اسمك للدخول. كل مستخدم له سجل خاص بقضاياه على هذا الجهاز.</p>
 
     <div id="loginUsersWrap" class="hidden">
@@ -242,7 +253,7 @@
       </div>
     </div>
 
-    <div id="loginMsg" class="login-msg"></div>
+    <div id="loginMsg" class="login-msg" role="alert"></div>
   </div>
 </div>
 

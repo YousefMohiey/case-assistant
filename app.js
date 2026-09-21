@@ -21,6 +21,13 @@ const LS = {
   adminFlag: "qa_admin"
 };
 
+const BRAND = {
+  ar: "مكتب محمد محيي للمحاماة",
+  en: "Mohiey Law Firm",
+  tool: "مساعد القضايا",
+  toolEn: "Case Assistant"
+};
+
 const $ = (id) => document.getElementById(id);
 
 let attached = null; /* { mime, name, text?, data?, dataUrl?, url? } */
@@ -140,7 +147,8 @@ function chromeFor(which) {
     lang,
     meta,
     title,
-    brand: lang === "en" ? "Case Assistant" : "مساعد القضايا",
+    brandLine: lang === "en" ? BRAND.en : BRAND.ar,
+    foot: lang === "en" ? "Prepared with " + BRAND.toolEn : "أُعد بواسطة " + BRAND.tool + " - " + BRAND.ar,
     trHead: lang === "en" ? "English Translation" : "الترجمة"
   };
 }
@@ -1185,10 +1193,12 @@ function buildPrintRoot(which) {
 
   root.classList.toggle("pr-ltr", c.lang === "en");
   root.innerHTML =
-    '<div class="pr-brand">' + c.brand + "</div>" +
-    '<div class="pr-title">' + c.title + "</div>" +
+    '<div class="pr-brand">' + escapeHtml(c.brandLine) + "</div>" +
+    '<div class="pr-rule"></div>' +
+    '<div class="pr-title">' + escapeHtml(c.title) + "</div>" +
     '<div class="pr-meta">' + escapeHtml(c.meta) + "</div>" +
-    parts.join("");
+    parts.join("") +
+    '<div class="pr-foot">' + escapeHtml(c.foot) + "</div>";
 }
 
 /* ===== العرض ===== */
@@ -1310,6 +1320,7 @@ function buildDocxBytes(which) {
 
   const c = chromeFor(which);
   const blocks = [
+    { k: "brand", runs: [{ t: c.brandLine }] },
     { k: "title", runs: [{ t: c.title }] },
     { k: "meta", runs: [{ t: c.meta }] }
   ];
@@ -1334,6 +1345,7 @@ function buildDocxBytes(which) {
     blocks.push({ k: "h2", runs: [{ t: c.trHead }] });
     for (const b of trBlocks) blocks.push(b);
   }
+  blocks.push({ k: "foot", runs: [{ t: c.foot }] });
   return QADocx.build({ blocks, lang: c.lang });
 }
 
@@ -1395,6 +1407,7 @@ async function run() {
   const btn = $("btnRun");
   const oldLabel = btn.textContent;
   btn.disabled = true;
+  btn.classList.add("loading");
   btn.textContent = "جاري التحليل...";
   setStatus("قد يستغرق التحليل دقيقة أو أكثر حسب طول القضية.");
 
@@ -1433,6 +1446,7 @@ async function run() {
   } finally {
     running = false;
     btn.disabled = false;
+    btn.classList.remove("loading");
     btn.textContent = oldLabel;
   }
 }
