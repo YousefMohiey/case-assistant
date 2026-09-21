@@ -183,13 +183,15 @@
     }
   }
 
-  var FOOTER_XML =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-    '<w:p><w:pPr><w:bidi/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' +
-    '<w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI" w:cs="Traditional Arabic"/><w:color w:val="94A3B8"/><w:sz w:val="18"/><w:szCs w:val="18"/><w:rtl/></w:rPr><w:t xml:space="preserve">صفحة </w:t></w:r>' +
-    '<w:fldSimple w:instr=" PAGE "><w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:color w:val="94A3B8"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple>' +
-    "</w:p></w:ftr>";
+  function footerXml(lang) {
+    var en = lang === "en";
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      "<w:p><w:pPr>" + (en ? "" : "<w:bidi/>") + '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' +
+      '<w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI" w:cs="Traditional Arabic"/><w:color w:val="94A3B8"/><w:sz w:val="18"/><w:szCs w:val="18"/>' + (en ? "" : "<w:rtl/>") + '</w:rPr><w:t xml:space="preserve">' + (en ? "Page " : "صفحة ") + "</w:t></w:r>" +
+      '<w:fldSimple w:instr=" PAGE "><w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:color w:val="94A3B8"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple>' +
+      "</w:p></w:ftr>";
+  }
 
   var CONTENT_TYPES =
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -228,6 +230,7 @@
 
   function build(model) {
     var blocks = (model && model.blocks) || [];
+    var lang = (model && model.lang) || "ar";
     var body = "";
     for (var i = 0; i < blocks.length; i++) body += blockXml(blocks[i]);
     var doc =
@@ -238,7 +241,7 @@
       '<w:footerReference w:type="default" r:id="rId2"/>' +
       '<w:pgSz w:w="11906" w:h="16838"/>' +
       '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/>' +
-      "<w:bidi/>" +
+      (lang === "en" ? "" : "<w:bidi/>") +
       "</w:sectPr>" +
       "</w:body></w:document>";
     return zipStore([
@@ -246,7 +249,7 @@
       { name: "_rels/.rels", data: enc(RELS) },
       { name: "word/document.xml", data: enc(doc) },
       { name: "word/styles.xml", data: enc(STYLES) },
-      { name: "word/footer1.xml", data: enc(FOOTER_XML) },
+      { name: "word/footer1.xml", data: enc(footerXml(lang)) },
       { name: "word/_rels/document.xml.rels", data: enc(DOC_RELS) }
     ]);
   }

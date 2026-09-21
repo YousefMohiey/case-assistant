@@ -410,6 +410,9 @@ details ol { margin: 8px 0 0; padding-right: 20px; }
   .print-root .pr-rpg { color: #666; font-size: 9.5pt; }
   .print-root .pr-sep { border: 0; border-top: 0.8pt solid #bbb; margin: 6mm 0; }
   .print-root .pr-newpage { page-break-before: always; }
+  .print-root.pr-ltr { direction: ltr; }
+  .print-root.pr-ltr .pr-li,
+  .print-root.pr-ltr .pr-ref { padding-right: 0; padding-left: 6mm; text-indent: -6mm; }
   .print-root sup.refn { font-size: 0.72em; }
 }
 

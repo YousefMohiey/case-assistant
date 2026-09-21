@@ -62,9 +62,10 @@ const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ 
 ### Key Dates
 ### Amounts
 ### Legal Points and Actions
-بدون أي علامات ‹ › أو اقتباسات في هذا القسم.
+اكتب هذا الملخص بالكامل بالحروف الإنجليزية وبدون أي حروف عربية: انقل أسماء الأشخاص والمحاكم والجهات بالحروف اللاتينية (نقل صوتي).
+وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
 
-3) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على أسماء الأطراف والمحاكم والتواريخ والأرقام كما هي، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
+3) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على دقة أسماء الأطراف والمحاكم والتواريخ والأرقام، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم. وإذا كانت الترجمة إلى الإنجليزية فلا تكتب فيها أي حروف عربية: انقل الأسماء العربية بالحروف اللاتينية (نقل صوتي).
 
 أخرج النتيجة بهذا الشكل بالضبط، دون أي مقدمات:
 
@@ -105,6 +106,41 @@ function dateAr() {
   catch (e) { return new Date().toISOString().slice(0, 10); }
 }
 function isoDate() { return new Date().toISOString().slice(0, 10); }
+function dateEn() {
+  try { return new Date().toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" }); }
+  catch (e) { return new Date().toISOString().slice(0, 10); }
+}
+/* لغة نص الترجمة: عربي أو إنجليزي */
+function trLang() {
+  const t = String((last && last.translation) || "").slice(0, 3000);
+  if (!t.trim()) return "ar";
+  let ar = 0, lat = 0;
+  for (const ch of t) {
+    if (/[\u0600-\u06FF]/.test(ch)) ar++;
+    else if (/[A-Za-z]/.test(ch)) lat++;
+  }
+  return (ar > 0 && ar >= lat * 0.2) ? "ar" : "en";
+}
+/* بيانات رأس المستند (عنوان/تاريخ/فوتر) حسب لغة الملف */
+function chromeFor(which) {
+  const en = which === "summaryEn" || (which === "translation" && trLang() === "en");
+  const lang = en ? "en" : "ar";
+  const name = (currentSource && currentSource.name) || "";
+  const latinName = name && !/[\u0600-\u06FF]/.test(name);
+  const date = lang === "en" ? dateEn() : dateAr();
+  const meta = date + (name && (lang === "ar" || latinName) ? (lang === "en" ? " | Source: " : " | المصدر: ") + name : "");
+  const title = which === "summary" ? "ملخص قضية"
+    : which === "summaryEn" ? "English Summary"
+    : which === "translation" ? (lang === "en" ? "Case Translation" : "ترجمة قضية")
+    : "ملخص وترجمة قضية";
+  return {
+    lang,
+    meta,
+    title,
+    brand: lang === "en" ? "Case Assistant" : "مساعد القضايا",
+    trHead: lang === "en" ? "English Translation" : "الترجمة"
+  };
+}
 
 function provider() { return localStorage.getItem(LS.provider) || "gemini"; }
 function keyFor(p) { return (localStorage.getItem(p === "gemini" ? LS.keyGemini : LS.keyOR) || "").trim(); }
@@ -976,12 +1012,7 @@ function buildPrintRoot(which) {
   const trCtx = { n: 0, quotes: [] };
   const trBlocks = last.translation ? parseBlocksMd(stripCiteMarks(last.translation), trCtx) : [];
 
-  const titleText = which === "summary" ? "ملخص قضية"
-    : which === "summaryEn" ? "English Summary"
-    : which === "translation" ? "ترجمة قضية"
-    : "ملخص وترجمة قضية";
-  const metaBits = [dateAr()];
-  if (currentSource && currentSource.name) metaBits.push("المصدر: " + currentSource.name);
+  const c = chromeFor(which);
 
   let refsHtml = "";
   if ((which === "full" || which === "summary") && sumCtx.quotes.length) {
@@ -1002,14 +1033,15 @@ function buildPrintRoot(which) {
     parts.push(which === "full" ? '<div class="pr-newpage"></div>' + enHead : enHead);
   }
   if ((which === "full" || which === "translation") && trBlocks.length) {
-    const trHead = '<div class="pr-h3">الترجمة</div>' + sectionHtml(trCtx, trBlocks, true);
+    const trHead = '<div class="pr-h3">' + c.trHead + "</div>" + sectionHtml(trCtx, trBlocks, true);
     parts.push(which === "full" ? '<div class="pr-newpage"></div>' + trHead : trHead);
   }
 
+  root.classList.toggle("pr-ltr", c.lang === "en");
   root.innerHTML =
-    '<div class="pr-brand">مساعد القضايا</div>' +
-    '<div class="pr-title">' + titleText + "</div>" +
-    '<div class="pr-meta">' + escapeHtml(metaBits.join(" | ")) + "</div>" +
+    '<div class="pr-brand">' + c.brand + "</div>" +
+    '<div class="pr-title">' + c.title + "</div>" +
+    '<div class="pr-meta">' + escapeHtml(c.meta) + "</div>" +
     parts.join("");
 }
 
@@ -1046,6 +1078,8 @@ function refreshDownloadRows() {
   show(row("summary"), hasSum);
   show(row("summaryEn"), hasEn);
   show(row("translation"), hasTr);
+  const trSub = document.querySelector('.dl-row[data-w="translation"] .dl-sub');
+  if (trSub && hasTr) trSub.textContent = trLang() === "en" ? "النص الكامل مترجمًا إلى الإنجليزية، لوحده" : "النص الكامل مترجمًا إلى العربية، لوحده";
 }
 
 /* ===== السجل ===== */
@@ -1121,13 +1155,10 @@ function buildDocxBytes(which) {
   const enBlocks = last.summaryEn ? blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.summaryEn), { n: 0, quotes: [] })) : [];
   const trBlocks = last.translation ? blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.translation), { n: 0, quotes: [] })) : [];
 
-  const titleText = which === "summary" ? "ملخص قضية"
-    : which === "summaryEn" ? "English Summary"
-    : which === "translation" ? "ترجمة قضية"
-    : "ملخص وترجمة قضية";
+  const c = chromeFor(which);
   const blocks = [
-    { k: "title", runs: [{ t: titleText }] },
-    { k: "meta", runs: [{ t: [dateAr()].concat(currentSource && currentSource.name ? ["المصدر: " + currentSource.name] : []).join(" | ") }] }
+    { k: "title", runs: [{ t: c.title }] },
+    { k: "meta", runs: [{ t: c.meta }] }
   ];
   if (which === "full" || which === "summary") {
     blocks.push({ k: "h2", runs: [{ t: "الملخص" }] });
@@ -1147,10 +1178,10 @@ function buildDocxBytes(which) {
   }
   if ((which === "full" || which === "translation") && trBlocks.length) {
     if (which === "full") blocks.push({ k: "brk" });
-    blocks.push({ k: "h2", runs: [{ t: "الترجمة" }] });
+    blocks.push({ k: "h2", runs: [{ t: c.trHead }] });
     for (const b of trBlocks) blocks.push(b);
   }
-  return QADocx.build({ blocks });
+  return QADocx.build({ blocks, lang: c.lang });
 }
 
 function anyContent() { return !!(last.summary || last.summaryEn || last.translation); }
