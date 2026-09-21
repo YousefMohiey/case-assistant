@@ -110,7 +110,7 @@ h2 { margin: 0 0 10px; font-size: 18.5px; }
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+  background: linear-gradient(135deg, #1e3a8a, #1e40af);
   color: #fff;
   font-weight: 700;
   font-size: 15px;
@@ -196,6 +196,7 @@ textarea {
   min-height: 170px;
   line-height: 1.9;
   margin-bottom: 10px;
+  text-align: right;
 }
 
 select { cursor: pointer; }
