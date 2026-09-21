@@ -6,6 +6,7 @@ const OR_BASE = "https://openrouter.ai/api/v1";
 const GEMINI_DEFAULT = "gemini-2.5-flash";
 const OR_DEFAULT = "google/gemma-4-31b-it:free";
 const MAX_FILE_MB = 15;
+const SRC_STORE_CAP = 40000; /* أقصى عدد حروف من النص الأصلي تُحفظ مع السجل */
 
 const LS = {
   provider: "qa_provider",
@@ -19,24 +20,41 @@ const LS = {
 
 const $ = (id) => document.getElementById(id);
 
-let attached = null; /* { mime, name, text?, data?, dataUrl? } */
+let attached = null; /* { mime, name, text?, data?, dataUrl?, url? } */
 let last = { summary: "", translation: "" };
+let currentSource = { kind: "none" }; /* { kind: "text"|"pdf"|"image"|"none", text?, url?, name? } */
+let currentCites = []; /* نصوص الاقتباسات بترتيب أرقام المصادر */
 let running = false;
 
 const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ مصري.
 
 المطلوب منك شيئان معًا:
 
-1) الملخص: اكتب ملخصًا قانونيًا بالعربية الفصحى للوثيقة المرفقة، تحت هذه العناوين وبهذا الترتيب:
-- نوع القضية والأطراف
-- الوقائع
-- الطلبات أو المطالب
-- التواريخ والمواعيد المهمة
-- المبالغ المالية (إن وجدت)
-- نقاط قانونية أو إجراءات مطلوبة (إن وجدت)
-كن دقيقًا ولا تضف معلومات غير موجودة في الوثيقة. إذا لم يتوفر بند، اكتب "غير مذكور".
+1) الملخص: اكتب ملخصًا قانونيًا بالعربية الفصحى للوثيقة، على شكل أقسام بهذا الترتيب:
 
-2) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة تكون كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على أسماء الأطراف والمحاكم والتواريخ والأرقام كما هي، ولا تختصر أي جزء.
+### نوع القضية والأطراف
+- (نقاط)
+### الوقائع
+- (نقاط)
+### الطلبات أو المطالب
+- (نقاط)
+### التواريخ والمواعيد المهمة
+- (نقاط)
+### المبالغ المالية
+- (نقاط)
+### نقاط قانونية أو إجراءات مطلوبة
+- (نقاط)
+
+كن دقيقًا ولا تضف معلومات غير موجودة في الوثيقة. إذا لم يتوفر بند، اكتب "غير مذكور".
+استخدم عناوين الأقسام بعلامة ### والنقاط بشرطة فقط، ولا تستخدم أي رموز تنسيق أخرى.
+
+قواعد الاقتباس (مهمة جدًا):
+- بعد كل نقطة، أضف الجزء الدال من نص الوثيقة الذي تدعمه هذه النقطة، منسوخًا حرفيًا كما هو.
+- ضع الاقتباس بين علامتي ‹ و › هكذا: - (النقطة) ‹النص الحرفي من الوثيقة›
+- الاقتباس قصير: من 5 إلى 20 كلمة، بدون تغيير أو تلخيص أو نقاط حذف، وفي سطر واحد.
+- لا تختلق اقتباسات أبدًا. إذا لم تجد نصًا حرفيًا يدعم النقطة، اكتب النقطة بدون اقتباس.
+
+2) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على أسماء الأطراف والمحاكم والتواريخ والأرقام كما هي، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
 
 أخرج النتيجة بهذا الشكل بالضبط، دون أي مقدمات:
 
@@ -62,6 +80,17 @@ function setStatus(msg, isErr) {
   el.textContent = msg || "";
   el.classList.toggle("err", !!isErr);
 }
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function dateAr() {
+  try { return new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); }
+  catch (e) { return new Date().toISOString().slice(0, 10); }
+}
 
 function provider() { return localStorage.getItem(LS.provider) || "gemini"; }
 function keyFor(p) { return (localStorage.getItem(p === "gemini" ? LS.keyGemini : LS.keyOR) || "").trim(); }
@@ -84,6 +113,14 @@ async function toDataUrl(file) {
     r.onerror = rej;
     r.readAsDataURL(file);
   });
+}
+function b64ToBlobUrl(b64, mime) {
+  try {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([u8], { type: mime }));
+  } catch (e) { return null; }
 }
 
 /* ===== الإعدادات ===== */
@@ -280,6 +317,433 @@ async function callProvider(p, key, text) {
   return p === "gemini" ? callGemini(key, text) : callOpenRouter(key, text);
 }
 
+/* ===== تحليل مخرجات الموديل ===== */
+function parseOutput(t) {
+  t = String(t || "").trim();
+  const m = t.match(/##\s*الملخص\s*([\s\S]*?)\s*##\s*الترجمة\s*([\s\S]*)$/);
+  if (m) return { summary: m[1].trim(), translation: m[2].trim() };
+  const i = t.indexOf("## الترجمة");
+  if (i >= 0) {
+    return {
+      summary: t.slice(0, i).replace(/##\s*الملخص/, "").trim(),
+      translation: t.slice(i + "## الترجمة".length).trim()
+    };
+  }
+  return { summary: t, translation: "" };
+}
+
+function stripCiteMarks(t) { return String(t || "").replace(/[‹›]/g, ""); }
+function stripCitesForCopy(t) {
+  return String(t || "").replace(/‹[^›]*›/g, "").replace(/[‹›]/g, "").replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim();
+}
+
+/* ===== تحويل الماركداون إلى كتل ===== */
+/* كتلة: { kind: "h2"|"h3"|"p"|"li"|"oli"|"hr", num?, spans: [{ t, b?, i?, code?, cite?, ci? }] } */
+function inlineSpans(text, ctx) {
+  const spans = [];
+  const re = /‹([^›]+)›|\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
+  let lastIdx = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > lastIdx) spans.push({ t: text.slice(lastIdx, m.index) });
+    if (m[1] != null) {
+      const span = { t: m[1].trim(), cite: true, ci: ctx.n++ };
+      ctx.quotes.push(span.t);
+      spans.push(span);
+    } else if (m[2] != null) spans.push({ t: m[2], b: true });
+    else if (m[3] != null) spans.push({ t: m[3], i: true });
+    else if (m[4] != null) spans.push({ t: m[4], code: true });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) spans.push({ t: text.slice(lastIdx) });
+  return spans.map(s => {
+    if (!s.cite && s.t != null) s.t = s.t.replace(/\*+/g, "").replace(/[‹›]/g, "");
+    return s;
+  }).filter(s => s.cite || s.t);
+}
+
+function parseBlocksMd(md, ctx) {
+  let s = String(md || "").replace(/\r\n?/g, "\n");
+  /* اقتباس يمتد على أكثر من سطر: نضمه في سطر واحد */
+  s = s.replace(/‹([^›]*\n[^›]*)›/g, (all, inner) => "‹" + inner.replace(/\s+/g, " ").trim() + "›");
+  const lines = s.split("\n");
+  const blocks = [];
+  let para = [];
+  const flush = () => {
+    if (para.length) { blocks.push({ kind: "p", spans: inlineSpans(para.join(" "), ctx) }); para = []; }
+  };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    let m;
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+      flush();
+      blocks.push({ kind: m[1].length <= 2 ? "h2" : "h3", spans: inlineSpans(m[2], ctx) });
+      continue;
+    }
+    if (/^(---+|\*\*\*+|___+)$/.test(line)) { flush(); blocks.push({ kind: "hr" }); continue; }
+    if ((m = line.match(/^[-*•]\s+(.*)$/))) { flush(); blocks.push({ kind: "li", spans: inlineSpans(m[1], ctx) }); continue; }
+    if ((m = line.match(/^(\d+)[.)]\s+(.*)$/))) { flush(); blocks.push({ kind: "oli", num: m[1], spans: inlineSpans(m[2], ctx) }); continue; }
+    para.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+function spansHtml(spans, mode) {
+  return spans.map(s => {
+    if (s.cite) {
+      if (mode === "print") return '<sup class="refn">[' + (s.ci + 1) + "]</sup>";
+      return '<button type="button" class="cite" data-i="' + s.ci + '" title="الانتقال إلى الاقتباس في النص الأصلي">' + (s.ci + 1) + "</button>";
+    }
+    let t = escapeHtml(s.t);
+    if (s.b) t = "<strong>" + t + "</strong>";
+    if (s.i) t = "<em>" + t + "</em>";
+    if (s.code) t = "<code>" + t + "</code>";
+    return t;
+  }).join("");
+}
+
+function blocksToHtml(blocks, mode, autoDir) {
+  const ad = autoDir ? ' dir="auto"' : "";
+  let html = "";
+  let list = null;
+  const closeList = () => { if (list) { html += "</" + list + ">"; list = null; } };
+  for (const b of blocks) {
+    if (b.kind === "hr") { closeList(); html += mode === "print" ? '<hr class="pr-sep">' : '<hr class="out-hr">'; continue; }
+    if (b.kind === "li" || b.kind === "oli") {
+      if (mode === "print") {
+        const mark = b.kind === "oli" ? escapeHtml(b.num || "1") + "." : "•";
+        html += '<div class="pr-li"' + ad + '><span class="pr-b">' + mark + "</span> " + spansHtml(b.spans, mode) + "</div>";
+        continue;
+      }
+      const type = b.kind === "oli" ? "ol" : "ul";
+      if (list !== type) { closeList(); html += "<" + type + ">"; list = type; }
+      html += "<li>" + spansHtml(b.spans, mode) + "</li>";
+      continue;
+    }
+    closeList();
+    if (b.kind === "h2") html += mode === "print" ? '<div class="pr-h4">' + spansHtml(b.spans, mode) + "</div>" : '<h2 class="out-h2">' + spansHtml(b.spans, mode) + "</h2>";
+    else if (b.kind === "h3") html += mode === "print" ? '<div class="pr-h4">' + spansHtml(b.spans, mode) + "</div>" : "<h3>" + spansHtml(b.spans, mode) + "</h3>";
+    else html += mode === "print" ? '<p class="pr-p"' + ad + ">" + spansHtml(b.spans, mode) + "</p>" : "<p" + ad + ">" + spansHtml(b.spans, mode) + "</p>";
+  }
+  closeList();
+  return html;
+}
+
+function blocksToDocxBlocks(blocks) {
+  return blocks.map(b => {
+    const runs = b.spans.map(s => s.cite ? { t: "[" + (s.ci + 1) + "]", sup: true } : { t: s.t, b: s.b, i: s.i, c: s.code ? "666666" : undefined });
+    if (b.kind === "h2") return { k: "h3", runs: runs.map(r => ({ t: r.t, b: true })) };
+    if (b.kind === "h3") return { k: "h4", runs: runs.map(r => ({ t: r.t, b: true })) };
+    if (b.kind === "li") return { k: "li", runs: [{ t: "• ", b: true }].concat(runs) };
+    if (b.kind === "oli") return { k: "li", runs: [{ t: (b.num || "1") + ". ", b: true }].concat(runs) };
+    if (b.kind === "hr") return { k: "sep" };
+    return { k: "p", runs };
+  });
+}
+
+/* ===== البحث عن الاقتباس في النص الأصلي ===== */
+const SKIP_RE = /[\u064B-\u0652\u0670\u0640\u200B-\u200F\uFEFF]/;
+const PUNCT_RE = /[«»"'“”‘’`()\[\]{}.,،؛;:!?؟•\u2013\u2014-]/;
+
+function normalizeWithMap(s) {
+  const out = [];
+  const map = [];
+  let prevSpace = false;
+  for (let i = 0; i < s.length; i++) {
+    let ch = s[i];
+    if (SKIP_RE.test(ch)) continue;
+    if (ch === "\u0623" || ch === "\u0625" || ch === "\u0622" || ch === "\u0671") ch = "\u0627";
+    else if (ch === "\u0649") ch = "\u064A";
+    else if (ch === "\u0629") ch = "\u0647";
+    if (/\s/.test(ch)) {
+      if (prevSpace) continue;
+      prevSpace = true;
+      out.push(" ");
+      map.push(i);
+      continue;
+    }
+    if (PUNCT_RE.test(ch)) continue;
+    prevSpace = false;
+    out.push(ch.toLowerCase());
+    map.push(i);
+  }
+  return { s: out.join(""), map };
+}
+
+function findQuote(source, quote) {
+  const q0 = String(quote || "").trim();
+  if (!q0) return null;
+  const srcN = normalizeWithMap(source);
+  const tryFind = (cand) => {
+    const n = normalizeWithMap(cand).s.trim();
+    if (n.length < 6) return null;
+    const idx = srcN.s.indexOf(n);
+    if (idx < 0) return null;
+    return { start: srcN.map[idx], end: srcN.map[idx + n.length - 1] + 1 };
+  };
+  const segments = q0.split(/[…]+|\.{3,}/).map(x => x.trim()).filter(Boolean);
+  const tries = [q0].concat(segments);
+  for (const t of tries) {
+    const r = tryFind(t);
+    if (r) return r;
+  }
+  for (const t of tries) {
+    const words = t.split(/\s+/);
+    for (const k of [10, 7, 5, 3]) {
+      if (words.length > k) {
+        const r = tryFind(words.slice(0, k).join(" "));
+        if (r) return r;
+      }
+    }
+  }
+  return null;
+}
+
+/* ===== الاقتباسات والتنقل ===== */
+function clearBubbles() {
+  document.querySelectorAll(".bubble").forEach(b => b.remove());
+}
+function showBubble(btn, q, labelText) {
+  const span = document.createElement("span");
+  span.className = "bubble";
+  span.appendChild(Object.assign(document.createElement("span"), { className: "bubble-label", textContent: labelText }));
+  span.appendChild(document.createTextNode(" «" + q + "»"));
+  btn.after(span);
+}
+function highlightSource(start, end) {
+  const box = $("sourceBody").querySelector(".srctext");
+  if (!box || !currentSource.text) return;
+  const t = currentSource.text;
+  box.innerHTML =
+    escapeHtml(t.slice(0, start)) +
+    '<mark id="hlmark" class="hl">' + escapeHtml(t.slice(start, end)) + "</mark>" +
+    escapeHtml(t.slice(end));
+  const mk = box.querySelector("#hlmark");
+  if (mk) {
+    mk.scrollIntoView({ behavior: "smooth", block: "center" });
+    mk.classList.add("flash");
+    setTimeout(() => { mk.classList.remove("flash"); }, 2200);
+  }
+}
+function jumpToCite(btn) {
+  const i = Number(btn.getAttribute("data-i"));
+  const q = currentCites[i];
+  if (!q) return;
+  if (btn.nextElementSibling && btn.nextElementSibling.classList.contains("bubble")) {
+    btn.nextElementSibling.remove();
+    return;
+  }
+  clearBubbles();
+  const src = currentSource || { kind: "none" };
+  if (src.kind === "text" && src.text) {
+    const hit = findQuote(src.text, q);
+    if (hit) { highlightSource(hit.start, hit.end); return; }
+    showBubble(btn, q, "لم يُعثر على الاقتباس حرفيًا في النص. نص الاقتباس:");
+    return;
+  }
+  if ((src.kind === "pdf" || src.kind === "image") && src.url) {
+    $("sourceCard").scrollIntoView({ behavior: "smooth", block: "center" });
+    showBubble(btn, q, src.kind === "pdf" ? "الاقتباس من ملف الـPDF الأصلي:" : "الاقتباس من الصورة الأصلية:");
+    return;
+  }
+  showBubble(btn, q, "النص الأصلي غير متاح في هذه الجلسة. نص الاقتباس:");
+}
+
+/* ===== عرض النتائج ===== */
+function renderSource(src) {
+  const card = $("sourceCard");
+  const body = $("sourceBody");
+  const open = $("btnSrcOpen");
+  const note = $("srcNote");
+  src = src || { kind: "none" };
+  if (src.kind === "none") { show(card, false); return; }
+  body.innerHTML = "";
+  note.classList.add("hidden");
+  open.classList.add("hidden");
+  if (src.kind === "text" && src.text) {
+    const d = document.createElement("div");
+    d.className = "srctext";
+    d.setAttribute("dir", "auto");
+    d.textContent = src.text;
+    body.appendChild(d);
+    note.textContent = "هذا هو النص الأصلي الذي تم التحليل منه. أرقام المصادر في الملخص تنقلك إلى الموضع هنا.";
+    note.classList.remove("hidden");
+  } else if (src.url && src.kind === "pdf") {
+    const f = document.createElement("iframe");
+    f.className = "srcpdf";
+    f.title = "الملف الأصلي PDF";
+    f.src = src.url + "#view=FitH";
+    body.appendChild(f);
+    open.classList.remove("hidden");
+    open.onclick = () => window.open(src.url, "_blank");
+  } else if (src.url && src.kind === "image") {
+    const img = document.createElement("img");
+    img.className = "srcimg";
+    img.alt = src.name || "الملف الأصلي";
+    img.src = src.url;
+    body.appendChild(img);
+    open.classList.remove("hidden");
+    open.onclick = () => window.open(src.url, "_blank");
+  } else {
+    note.textContent = "الملف الأصلي غير محفوظ في السجل. أعد رفع الملف لعرضه والتنقل منه.";
+    note.classList.remove("hidden");
+  }
+  show(card, true);
+}
+
+function buildPrintRoot() {
+  const root = $("printRoot");
+  if (!last.summary && !last.translation) {
+    root.innerHTML = '<p class="pr-meta">لا يوجد ملخص بعد. أنشئ ملخصًا أولًا ثم اطبع.</p>';
+    return;
+  }
+  const ctx = { n: 0, quotes: [] };
+  const sHtml = blocksToHtml(parseBlocksMd(last.summary, ctx), "print");
+  const tctx = { n: 0, quotes: [] };
+  const tHtml = blocksToHtml(parseBlocksMd(stripCiteMarks(last.translation), tctx), "print", true);
+  let refsHtml = "";
+  if (ctx.quotes.length) {
+    refsHtml = '<div class="pr-h5">المراجع (اقتباسات من النص الأصلي)</div>' +
+      ctx.quotes.map((q, i) => '<div class="pr-ref"><span class="pr-rn">[' + (i + 1) + "]</span> «" + escapeHtml(q) + "»</div>").join("");
+  }
+  const metaBits = [dateAr()];
+  if (currentSource && currentSource.name) metaBits.push("المصدر: " + currentSource.name);
+  root.innerHTML =
+    '<div class="pr-title">ملخص وترجمة قضية</div>' +
+    '<div class="pr-meta">' + escapeHtml(metaBits.join(" | ")) + "</div>" +
+    '<div class="pr-h3">الملخص</div>' + sHtml + refsHtml +
+    '<hr class="pr-sep">' +
+    '<div class="pr-h3">الترجمة</div>' + tHtml;
+}
+
+function showResult(parsed, source) {
+  last = { summary: (parsed && parsed.summary) || "", translation: (parsed && parsed.translation) || "" };
+  currentSource = source || { kind: "none" };
+  const ctx = { n: 0, quotes: [] };
+  $("summaryOut").innerHTML = blocksToHtml(parseBlocksMd(last.summary, ctx), "screen");
+  currentCites = ctx.quotes;
+  const tctx = { n: 0, quotes: [] };
+  const trSrc = stripCiteMarks(last.translation) || "(لا توجد ترجمة)";
+  $("transOut").innerHTML = blocksToHtml(parseBlocksMd(trSrc, tctx), "screen", true);
+  show($("citeHint"), ctx.quotes.length > 0);
+  renderSource(currentSource);
+  buildPrintRoot();
+  show($("output"), true);
+  $("output").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* ===== السجل ===== */
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(LS.history) || "[]"); } catch (e) { return []; }
+}
+function saveHistory(srcTitle, parsed, model, src) {
+  const h = loadHistory();
+  const entry = {
+    t: Date.now(),
+    title: String(srcTitle || "").replace(/\s+/g, " ").slice(0, 80),
+    summary: parsed.summary,
+    translation: parsed.translation,
+    model
+  };
+  if (src) {
+    entry.srcKind = src.kind;
+    entry.srcName = src.name || "";
+    if (src.kind === "text" && (src.text || "").length <= SRC_STORE_CAP) entry.srcText = src.text;
+  }
+  h.unshift(entry);
+  const trimmed = h.slice(0, 30);
+  try {
+    localStorage.setItem(LS.history, JSON.stringify(trimmed));
+  } catch (e) {
+    try {
+      trimmed.forEach(x => { delete x.srcText; });
+      localStorage.setItem(LS.history, JSON.stringify(trimmed));
+    } catch (e2) {}
+  }
+  renderHistory();
+}
+function renderHistory() {
+  const h = loadHistory();
+  const card = $("historyCard");
+  const list = $("historyList");
+  show(card, h.length > 0);
+  list.innerHTML = "";
+  h.forEach((it) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.className = "link";
+    b.type = "button";
+    b.textContent = it.title || "بدون عنوان";
+    b.addEventListener("click", () => {
+      let src = { kind: "none" };
+      if (it.srcKind === "text" && it.srcText) src = { kind: "text", text: it.srcText, name: it.srcName || "" };
+      else if (it.srcKind && it.srcKind !== "none") src = { kind: it.srcKind, name: it.srcName || "", url: null };
+      showResult({ summary: it.summary || "", translation: it.translation || "" }, src);
+    });
+    const d = document.createElement("span");
+    d.className = "muted";
+    try { d.textContent = new Date(it.t).toLocaleString("ar-EG"); } catch (e) { d.textContent = ""; }
+    li.appendChild(b);
+    li.appendChild(d);
+    list.appendChild(li);
+  });
+}
+
+/* ===== التصدير ===== */
+function buildDocxBytes() {
+  const ctx = { n: 0, quotes: [] };
+  const sumBlocks = blocksToDocxBlocks(parseBlocksMd(last.summary, ctx));
+  const tctx = { n: 0, quotes: [] };
+  const trBlocks = blocksToDocxBlocks(parseBlocksMd(stripCiteMarks(last.translation), tctx));
+  const blocks = [
+    { k: "title", runs: [{ t: "ملخص وترجمة قضية" }] },
+    { k: "meta", runs: [{ t: dateAr() + (currentSource && currentSource.name ? " | المصدر: " + currentSource.name : "") }] },
+    { k: "h2", runs: [{ t: "الملخص" }] }
+  ].concat(sumBlocks);
+  if (ctx.quotes.length) {
+    blocks.push({ k: "h3", runs: [{ t: "المراجع (اقتباسات من النص الأصلي)" }] });
+    ctx.quotes.forEach((q, i) => {
+      blocks.push({ k: "ref", runs: [{ t: "[" + (i + 1) + "] ", b: true }, { t: "«" + q + "»", i: true }] });
+    });
+  }
+  blocks.push({ k: "sep" });
+  blocks.push({ k: "h2", runs: [{ t: "الترجمة" }] });
+  return QADocx.build({ blocks: blocks.concat(trBlocks) });
+}
+
+function exportWord() {
+  if (!last.summary && !last.translation) { setStatus("لا يوجد ملخص للتحميل بعد", true); return; }
+  try {
+    const bytes = buildDocxBytes();
+    const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ملخص-قضية-" + new Date().toISOString().slice(0, 10) + ".docx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    setStatus("تعذر إنشاء ملف Word. حاول تاني.", true);
+  }
+}
+
+function printExport() {
+  if (!last.summary && !last.translation) { setStatus("لا يوجد ملخص للطباعة بعد", true); return; }
+  buildPrintRoot();
+  const oldTitle = document.title;
+  document.title = "ملخص-قضية-" + new Date().toISOString().slice(0, 10);
+  const restore = () => {
+    document.title = oldTitle;
+    window.removeEventListener("afterprint", restore);
+  };
+  window.addEventListener("afterprint", restore);
+  setTimeout(restore, 15000);
+  window.print();
+}
+
 /* ===== تشغيل ===== */
 async function run() {
   if (running) return;
@@ -315,9 +779,17 @@ async function run() {
       usedProvider = other;
     }
 
-    last = result.parsed;
-    renderOutput(last);
-    saveHistory(text || (attached && attached.name) || "بدون عنوان", last, result.model);
+    const srcTitle = text || (attached && attached.name) || "بدون عنوان";
+    let src = { kind: "none" };
+    if (text) src = { kind: "text", text: text };
+    else if (attached) {
+      if (attached.mime === "text/plain") src = { kind: "text", text: attached.text || "", name: attached.name };
+      else if (attached.mime === "application/pdf") src = { kind: "pdf", url: attached.url || null, name: attached.name };
+      else src = { kind: "image", url: attached.dataUrl || null, name: attached.name };
+    }
+
+    showResult(result.parsed, src);
+    saveHistory(srcTitle, result.parsed, result.model, src);
     let msg = "تم";
     if (usedProvider !== p) msg += " (تم التحويل تلقائيًا إلى " + labelOf(usedProvider) + ")";
     if (result.truncated) msg += ". ملاحظة: النتيجة قد تكون مقطوعة لطول النص، جرب تقسيم القضية.";
@@ -329,91 +801,6 @@ async function run() {
     btn.disabled = false;
     btn.textContent = oldLabel;
   }
-}
-
-/* ===== عرض النتائج ===== */
-function parseOutput(t) {
-  t = String(t || "").trim();
-  const m = t.match(/##\s*الملخص\s*([\s\S]*?)\s*##\s*الترجمة\s*([\s\S]*)$/);
-  if (m) return { summary: m[1].trim(), translation: m[2].trim() };
-  const i = t.indexOf("## الترجمة");
-  if (i >= 0) {
-    return {
-      summary: t.slice(0, i).replace(/##\s*الملخص/, "").trim(),
-      translation: t.slice(i + "## الترجمة".length).trim()
-    };
-  }
-  return { summary: t, translation: "" };
-}
-
-function renderOutput(p) {
-  $("summaryOut").textContent = p.summary;
-  $("transOut").textContent = p.translation || "(لا توجد ترجمة)";
-  show($("output"), true);
-  $("output").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-/* ===== السجل ===== */
-function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(LS.history) || "[]"); } catch (e) { return []; }
-}
-function saveHistory(src, parsed, model) {
-  const h = loadHistory();
-  h.unshift({
-    t: Date.now(),
-    title: String(src || "").replace(/\s+/g, " ").slice(0, 80),
-    summary: parsed.summary,
-    translation: parsed.translation,
-    model
-  });
-  localStorage.setItem(LS.history, JSON.stringify(h.slice(0, 30)));
-  renderHistory();
-}
-function renderHistory() {
-  const h = loadHistory();
-  const card = $("historyCard");
-  const list = $("historyList");
-  show(card, h.length > 0);
-  list.innerHTML = "";
-  h.forEach((it) => {
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.className = "link";
-    b.type = "button";
-    b.textContent = it.title || "بدون عنوان";
-    b.addEventListener("click", () => {
-      last = { summary: it.summary || "", translation: it.translation || "" };
-      renderOutput(last);
-    });
-    const d = document.createElement("span");
-    d.className = "muted";
-    try { d.textContent = new Date(it.t).toLocaleString("ar-EG"); } catch (e) { d.textContent = ""; }
-    li.appendChild(b);
-    li.appendChild(d);
-    list.appendChild(li);
-  });
-}
-
-/* ===== تصدير ===== */
-function escHtml(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\n/g, "<br>");
-}
-function exportWord() {
-  const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القضية</title></head>' +
-    '<body style="font-family:Segoe UI,Tahoma,sans-serif;direction:rtl;line-height:1.9">' +
-    "<h2>الملخص</h2><div>" + escHtml(last.summary) + "</div><hr>" +
-    "<h2>الترجمة</h2><div>" + escHtml(last.translation) + "</div></body></html>";
-  const blob = new Blob(["\ufeff" + html], { type: "application/msword" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "قضية-" + new Date().toISOString().slice(0, 10) + ".doc";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
 }
 
 /* ===== ربط الأحداث ===== */
@@ -450,9 +837,11 @@ function init() {
     if (f.type === "text/plain" || /\.txt$/i.test(name)) {
       attached = { mime: "text/plain", text: await f.text(), name };
     } else if (f.type === "application/pdf" || /\.pdf$/i.test(name)) {
-      attached = { mime: "application/pdf", data: await toB64(f), name };
+      const b64 = await toB64(f);
+      attached = { mime: "application/pdf", data: b64, name, url: b64ToBlobUrl(b64, "application/pdf") };
     } else if (/^image\//.test(f.type)) {
-      attached = { mime: f.type, data: await toB64(f), dataUrl: await toDataUrl(f), name };
+      const b64 = await toB64(f);
+      attached = { mime: f.type, data: b64, dataUrl: await toDataUrl(f), name };
     } else {
       $("fileInfo").textContent = "نوع الملف غير مدعوم. المدعوم: PDF أو صورة أو ملف نصي";
       return;
@@ -472,7 +861,8 @@ function init() {
 
   document.querySelectorAll("[data-copy]").forEach((b) => {
     b.addEventListener("click", async () => {
-      const t = b.getAttribute("data-copy") === "summary" ? last.summary : last.translation;
+      const which = b.getAttribute("data-copy");
+      const t = which === "summary" ? stripCitesForCopy(last.summary) : stripCitesForCopy(last.translation);
       try {
         await navigator.clipboard.writeText(t);
         const old = b.textContent;
@@ -482,14 +872,20 @@ function init() {
     });
   });
 
+  $("summaryOut").addEventListener("click", (e) => {
+    const btn = e.target.closest("button.cite");
+    if (btn) jumpToCite(btn);
+  });
+
   $("btnWord").addEventListener("click", exportWord);
-  $("btnPrint").addEventListener("click", () => window.print());
+  $("btnPrint").addEventListener("click", printExport);
   $("btnClearHistory").addEventListener("click", () => {
     localStorage.removeItem(LS.history);
     renderHistory();
   });
 
   renderHistory();
+  buildPrintRoot();
   if (keyFor(provider())) refreshModels(true);
 }
 
