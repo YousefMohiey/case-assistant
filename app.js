@@ -17,13 +17,14 @@ const LS = {
   modelOR: "qa_model_openrouter",
   history: "qa_history",
   users: "qa_users",
+  accounts: "qa_accounts",
   activeUser: "qa_active_user",
   adminFlag: "qa_admin",
   draft: "qa_draft"
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22f";
+const APP_VER = "2026-09-22g";
 
 const BRAND = {
   name: "محمد محي",
@@ -244,13 +245,15 @@ function saveModelFor(p, id) { localStorage.setItem(p === "gemini" ? LS.modelGem
 /* ===== المستخدمون ووضع المدير ===== */
 const USER_HIST_PREFIX = "qa_history_u_";
 
-function loadUsers() {
-  try { return JSON.parse(localStorage.getItem(LS.users) || "[]"); } catch (e) { return []; }
+function loadAccounts() {
+  try { return JSON.parse(localStorage.getItem(LS.accounts) || "[]"); } catch (e) { return []; }
 }
-function saveUsers(list) { localStorage.setItem(LS.users, JSON.stringify(list)); }
+function saveAccounts(list) { localStorage.setItem(LS.accounts, JSON.stringify(list)); }
+function normName(x) { return String(x || "").trim().replace(/\s+/g, " "); }
+function nameKey(x) { return normName(x).toLocaleLowerCase(); }
 function currentUser() {
   const id = localStorage.getItem(LS.activeUser) || "";
-  return loadUsers().find(u => u.id === id) || null;
+  return loadAccounts().find(u => u.id === id) || null;
 }
 async function sha256hex(s) {
   try {
@@ -267,17 +270,23 @@ function newSalt() {
   try { crypto.getRandomValues(a); } catch (e) { for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256); }
   return Array.from(a).map(b => b.toString(16).padStart(2, "0")).join("");
 }
-/* الرمز يُخزَّن مجزَّأ مع ملح خاص لكل مستخدم */
-async function hashPin(pin, salt) {
-  return salt ? sha256hex(salt + "::" + pin) : sha256hex("qa::" + pin);
+/* كلمة المرور تُخزَّن مجزَّأة مع ملح خاص بكل حساب */
+async function hashPassword(pw, salt) {
+  return sha256hex("qa::pw::" + salt + "::" + pw);
 }
-async function verifyPin(u, v) {
-  const h = await hashPin(v, u.salt);
-  return !!u.pin && h === u.pin;
+async function verifyUserPass(u, v) {
+  if (!u || !u.h) return false;
+  const h = await hashPassword(v, u.salt);
+  return h === u.h;
 }
 function userHistoryKey() { const u = currentUser(); return u ? USER_HIST_PREFIX + u.id : null; }
-let pendingUser = null;
-
+function setPassVisible(inpId, btnId, on) {
+  const inp = $(inpId), btn = $(btnId);
+  if (!inp || !btn) return;
+  inp.type = on ? "text" : "password";
+  btn.classList.toggle("on", !!on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+}
 function setLoginMsg(msg, isErr) {
   const el = $("loginMsg");
   el.textContent = msg || "";
@@ -286,86 +295,58 @@ function setLoginMsg(msg, isErr) {
 function showLogin() { renderLogin(); show($("login"), true); }
 function hideLogin() { show($("login"), false); }
 function renderLogin() {
-  pendingUser = null;
-  show($("loginPinWrap"), false);
   setLoginMsg("");
-  const admin = isAdmin();
-  show($("newUserForm"), admin);
-  const list = loadUsers();
-  const wrap = $("loginUsers");
-  wrap.innerHTML = "";
-  if (list.length) {
-    show($("loginUsersWrap"), true);
-    show($("loginEmpty"), false);
-    list.forEach((u) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "login-user";
-      b.innerHTML = '<span class="avatar">' + escapeHtml((u.name || "?").trim().charAt(0)) + '</span><span class="lu-name">' + escapeHtml(u.name) + '</span>' + (u.pin ? '<span class="lu-lock">محمي برمز</span>' : "") + '<svg class="lu-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
-      b.addEventListener("click", () => {
-        if (u.pin) {
-          pendingUser = u;
-          show($("loginUsersWrap"), false);
-          show($("newUserForm"), false);
-          show($("loginPinWrap"), true);
-          $("pinWho").textContent = u.name;
-          $("loginPin").value = "";
-          setLoginMsg("");
-          $("loginPin").focus();
-        } else {
-          loginUser(u);
-        }
-      });
-      wrap.appendChild(b);
-    });
-  } else {
-    show($("loginUsersWrap"), false);
-    show($("loginEmpty"), !admin);
-  }
+  const empty = $("loginEmpty");
+  if (empty) show(empty, loadAccounts().length === 0);
+  const fu = $("loginUser"), fp = $("loginPass");
+  if (fu) fu.value = "";
+  if (fp) fp.value = "";
+  setPassVisible("loginPass", "btnLoginEye", false);
+  setTimeout(() => { try { if (fu) fu.focus(); } catch (e) {} }, 60);
 }
 function renderLoginIfVisible() {
   const l = $("login");
   if (l && !l.classList.contains("hidden")) renderLogin();
 }
 /* إنشاء الحسابات من وضع المدير فقط، والرمز مطلوب دائمًا */
-async function addUserCore(name, pin) {
-  name = String(name || "").trim().replace(/\s+/g, " ").slice(0, 40);
-  pin = String(pin || "").trim();
-  if (!name) return { err: "اكتب الاسم أولًا" };
-  if (!/^\d{4,8}$/.test(pin)) return { err: "رمز الدخول مطلوب: من 4 إلى 8 أرقام" };
-  const list = loadUsers();
-  if (list.some(u => u.name === name)) return { err: "الاسم موجود بالفعل. اختره من القائمة أو اكتب اسمًا آخر" };
+/* إنشاء الحسابات من وضع المدير فقط: اسم مستخدم وكلمة مرور */
+async function addAccountCore(name, pass) {
+  name = normName(name).slice(0, 40);
+  pass = String(pass || "");
+  if (name.length < 2) return { err: "اسم المستخدم قصير جدًا: حرفان على الأقل" };
+  if (pass.length < 6) return { err: "كلمة المرور قصيرة: 6 أحرف على الأقل" };
+  const list = loadAccounts();
+  if (list.some(u => nameKey(u.name) === nameKey(name))) return { err: "اسم المستخدم هذا مستخدم بالفعل، اختر اسمًا آخر" };
   const salt = newSalt();
-  const u = { id: "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, salt, pin: await hashPin(pin, salt), t: Date.now() };
+  const u = { id: "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, salt, h: await hashPassword(pass, salt), t: Date.now() };
   list.push(u);
-  saveUsers(list);
+  saveAccounts(list);
   migrateOldHistory(u.id);
   return { u };
 }
-async function createUser() {
-  if (!isAdmin()) { setLoginMsg("إضافة المستخدمين متاحة من وضع المدير فقط", true); return; }
-  const r = await addUserCore($("newUserName").value, $("newUserPin").value);
-  if (r.err) { setLoginMsg(r.err, true); return; }
-  $("newUserName").value = "";
-  $("newUserPin").value = "";
-  loginUser(r.u);
-}
+
 async function adminAddUser() {
   const msg = $("admUserMsg");
-  const r = await addUserCore($("admUserName").value, $("admUserPin").value);
-  if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
-  msg.textContent = "أُضيف " + r.u.name;
-  msg.classList.remove("err");
-  $("admUserName").value = "";
-  $("admUserPin").value = "";
-  renderUsersAdmin();
-  renderLoginIfVisible();
+  const btn = $("btnAdmAddUser");
+  if (btn && btn.disabled) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await addAccountCore($("admUserName").value, $("admUserPass").value);
+    if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
+    msg.textContent = "أُنشئ حساب " + r.u.name;
+    msg.classList.remove("err");
+    $("admUserName").value = "";
+    $("admUserPass").value = "";
+    setPassVisible("admUserPass", "btnAdmEye", false);
+    renderUsersAdmin();
+    renderLoginIfVisible();
+  } finally { if (btn) btn.disabled = false; }
 }
 function deleteUser(id) {
-  const u = loadUsers().find(x => x.id === id);
+  const u = loadAccounts().find(x => x.id === id);
   if (!u) return;
-  if (!window.confirm('حذف المستخدم "' + u.name + '"؟ سيُحذف سجله أيضًا من هذا الجهاز.')) return;
-  saveUsers(loadUsers().filter(x => x.id !== id));
+  if (!window.confirm('حذف حساب "' + u.name + '"؟ سيُحذف سجله أيضًا من هذا الجهاز.')) return;
+  saveAccounts(loadAccounts().filter(x => x.id !== id));
   try { localStorage.removeItem(USER_HIST_PREFIX + id); } catch (e) {}
   if ((localStorage.getItem(LS.activeUser) || "") === id) logoutUser();
   renderUsersAdmin();
@@ -374,26 +355,95 @@ function deleteUser(id) {
 function renderUsersAdmin() {
   const wrap = $("usersAdmin");
   if (!wrap) return;
-  const list = loadUsers();
+  const list = loadAccounts();
   wrap.innerHTML = "";
   if (!list.length) {
-    wrap.innerHTML = '<p class="muted">لا يوجد مستخدمون على هذا الجهاز بعد.</p>';
+    wrap.innerHTML = '<p class="muted">لا توجد حسابات على هذا الجهاز بعد.</p>';
     return;
   }
   list.forEach(u => {
     const row = document.createElement("div");
     row.className = "ua-row";
-    let ds = "";
+    let ds = "", dl = "";
     try { ds = new Date(u.t || Date.now()).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
-    row.innerHTML = '<div class="ua-info"><span class="ua-name">' + escapeHtml(u.name) + '</span><span class="ua-meta">' + (u.pin ? "محمي برمز" : "بدون رمز") + (ds ? " • " + ds : "") + "</span></div>";
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "ghost small danger";
-    b.textContent = "حذف";
-    b.addEventListener("click", () => deleteUser(u.id));
-    row.appendChild(b);
+    try { if (u.l) dl = new Date(u.l).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
+    const info = document.createElement("div");
+    info.className = "ua-info";
+    const nm = document.createElement("span");
+    nm.className = "ua-name";
+    nm.textContent = u.name;
+    const mt = document.createElement("span");
+    mt.className = "ua-meta";
+    mt.textContent = (ds ? "أُنشئ في " + ds : "") + (dl ? (ds ? " • " : "") + "آخر دخول " + dl : "");
+    info.appendChild(nm);
+    info.appendChild(mt);
+    const acts = document.createElement("div");
+    acts.className = "ua-actions";
+    const b1 = document.createElement("button");
+    b1.type = "button";
+    b1.className = "ghost small";
+    b1.textContent = "كلمة المرور";
+    b1.addEventListener("click", () => openResetEditor(row, u));
+    const b2 = document.createElement("button");
+    b2.type = "button";
+    b2.className = "ghost small danger";
+    b2.textContent = "حذف";
+    b2.addEventListener("click", () => deleteUser(u.id));
+    acts.appendChild(b1);
+    acts.appendChild(b2);
+    row.appendChild(info);
+    row.appendChild(acts);
     wrap.appendChild(row);
   });
+}
+async function resetUserPassword(id, pass) {
+  const list = loadAccounts();
+  const u = list.find(x => x.id === id);
+  if (!u) return { err: "الحساب غير موجود" };
+  pass = String(pass || "");
+  if (pass.length < 6) return { err: "كلمة المرور قصيرة: 6 أحرف على الأقل" };
+  const salt = newSalt();
+  u.salt = salt;
+  u.h = await hashPassword(pass, salt);
+  saveAccounts(list);
+  return { ok: true };
+}
+function openResetEditor(row, u) {
+  const prev = row.querySelector(".ua-reset");
+  if (prev) { prev.remove(); return; }
+  const box = document.createElement("div");
+  box.className = "ua-reset";
+  const inp = document.createElement("input");
+  inp.type = "password";
+  inp.dir = "ltr";
+  inp.placeholder = "كلمة المرور الجديدة (6 أحرف على الأقل)";
+  inp.autocomplete = "new-password";
+  inp.maxLength = 80;
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.className = "primary small";
+  ok.textContent = "حفظ";
+  const no = document.createElement("button");
+  no.type = "button";
+  no.className = "ghost small";
+  no.textContent = "إلغاء";
+  const msg = document.createElement("span");
+  msg.className = "muted";
+  no.addEventListener("click", () => box.remove());
+  ok.addEventListener("click", async () => {
+    const r = await resetUserPassword(u.id, inp.value);
+    if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
+    box.remove();
+    const m = $("admUserMsg");
+    if (m) { m.textContent = "تم تحديث كلمة مرور " + u.name; m.classList.remove("err"); }
+  });
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); });
+  box.appendChild(inp);
+  box.appendChild(ok);
+  box.appendChild(no);
+  box.appendChild(msg);
+  row.appendChild(box);
+  setTimeout(() => { try { inp.focus(); } catch (e) {} }, 40);
 }
 function migrateOldHistory(uid) {
   try {
@@ -405,16 +455,44 @@ function migrateOldHistory(uid) {
     }
   } catch (e) {}
 }
-async function submitPin() {
-  if (!pendingUser) return;
-  const v = $("loginPin").value.trim();
-  if (!v) return;
-  if (await verifyPin(pendingUser, v)) loginUser(pendingUser);
-  else setLoginMsg("الرمز غير صحيح، حاول مرة أخرى", true);
+
+/* إزالة نظام الرموز القديم: تُحذف الحسابات والسجلات القديمة مرة واحدة */
+function migrateOldAccounts() {
+  try {
+    localStorage.removeItem(LS.users);
+    const keep = {};
+    const list = loadAccounts();
+    for (let i = 0; i < list.length; i++) keep[list[i].id] = 1;
+    const doomed = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf(USER_HIST_PREFIX) === 0 && !keep[k.slice(USER_HIST_PREFIX.length)]) doomed.push(k);
+    }
+    for (let i = 0; i < doomed.length; i++) { try { localStorage.removeItem(doomed[i]); } catch (e) {} }
+    const act = localStorage.getItem(LS.activeUser) || "";
+    if (act && !keep[act]) localStorage.removeItem(LS.activeUser);
+  } catch (e) {}
+}
+async function submitLogin() {
+  const name = normName($("loginUser").value);
+  const pass = $("loginPass").value;
+  if (!name || !pass) { setLoginMsg("اكتب اسم المستخدم وكلمة المرور", true); return; }
+  const u = loadAccounts().find(x => nameKey(x.name) === nameKey(name));
+  if (!u || !(await verifyUserPass(u, pass))) {
+    setLoginMsg("اسم المستخدم أو كلمة المرور غير صحيحة", true);
+    $("loginPass").value = "";
+    try { $("loginPass").focus(); } catch (e) {}
+    return;
+  }
+  try {
+    const list = loadAccounts();
+    const rec = list.find(x => x.id === u.id);
+    if (rec) { rec.l = Date.now(); saveAccounts(list); }
+  } catch (e) {}
+  loginUser(u);
 }
 function loginUser(u) {
   localStorage.setItem(LS.activeUser, u.id);
-  pendingUser = null;
   hideLogin();
   applyUserUI();
   /* لا تبقى نتيجة مستخدم آخر ظاهرة بعد التبديل */
@@ -2091,14 +2169,12 @@ function init() {
     renderHistory();
   });
 
-  /* المستخدمون والدخول */
+  /* الحسابات والدخول */
   $("btnSwitchUser").addEventListener("click", logoutUser);
-  $("btnCreateUser").addEventListener("click", createUser);
-  $("newUserName").addEventListener("keydown", (e) => { if (e.key === "Enter") createUser(); });
-  $("newUserPin").addEventListener("keydown", (e) => { if (e.key === "Enter") createUser(); });
-  $("btnLoginPin").addEventListener("click", submitPin);
-  $("loginPin").addEventListener("keydown", (e) => { if (e.key === "Enter") submitPin(); });
-  $("btnPinBack").addEventListener("click", renderLogin);
+  $("btnLoginGo").addEventListener("click", submitLogin);
+  $("loginUser").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); try { $("loginPass").focus(); } catch (err) {} } });
+  $("loginPass").addEventListener("keydown", (e) => { if (e.key === "Enter") submitLogin(); });
+  (function () { const b = $("btnLoginEye"); if (b) b.addEventListener("click", () => setPassVisible("loginPass", "btnLoginEye", $("loginPass").type === "password")); })();
   $("btnExitAdmin").addEventListener("click", exitAdmin);
   $("btnAdminEntry").addEventListener("click", openAdminGate);
   $("btnAdminOk").addEventListener("click", submitAdminCode);
@@ -2106,7 +2182,8 @@ function init() {
   $("adminCode").addEventListener("keydown", (e) => { if (e.key === "Enter") submitAdminCode(); });
   $("btnAdmAddUser").addEventListener("click", adminAddUser);
   $("admUserName").addEventListener("keydown", (e) => { if (e.key === "Enter") adminAddUser(); });
-  $("admUserPin").addEventListener("keydown", (e) => { if (e.key === "Enter") adminAddUser(); });
+  $("admUserPass").addEventListener("keydown", (e) => { if (e.key === "Enter") adminAddUser(); });
+  (function () { const b = $("btnAdmEye"); if (b) b.addEventListener("click", () => setPassVisible("admUserPass", "btnAdmEye", $("admUserPass").type === "password")); })();
 
   /* وضع المدير: رابط #admin أو خمس نقرات متتالية على اسم الموقع في الأسفل */
   if ((location.hash || "").toLowerCase() === "#admin") enterAdmin();
@@ -2122,6 +2199,7 @@ function init() {
     if (adminTaps >= 5) { adminTaps = 0; enterAdmin(); }
   });
 
+  migrateOldAccounts();
   applyAdminUI();
   if (currentUser()) hideLogin(); else showLogin();
   applyUserUI();

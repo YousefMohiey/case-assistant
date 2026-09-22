@@ -620,7 +620,7 @@ details ol { margin: 8px 0 0; padding-right: 20px; }
   margin: 0 0 10px;
   letter-spacing: 0.3px;
 }
-.login-sub { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 16px; line-height: 1.85; }
+.login-sub { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 16px; line-height: 1.85; text-wrap: balance; }
 .login-users { display: flex; flex-direction: column; gap: 8px; }
 .login-user {
   display: flex;
@@ -662,6 +662,36 @@ details ol { margin: 8px 0 0; padding-right: 20px; }
   text-align: center;
   margin-bottom: 8px;
 }
+.login-form { display: flex; flex-direction: column; gap: 12px; }
+.login-form .field { margin: 0; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { width: 100%; padding-left: 46px; }
+.pw-eye {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0;
+}
+.pw-eye:hover { color: var(--ink); background: var(--surface-2); }
+.pw-eye svg { width: 19px; height: 19px; }
+.pw-eye .ic-off { display: none; }
+.pw-eye.on .ic-on { display: none; }
+.pw-eye.on .ic-off { display: block; }
+.ua-row { flex-wrap: wrap; }
+.ua-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.ua-reset { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; margin-top: 8px; }
+.ua-reset input { flex: 1 1 170px; min-width: 120px; }
 .gate-card { width: min(400px, 100%); }
 
 /* ===== الطباعة ===== */

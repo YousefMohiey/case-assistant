@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=4">
+<link rel="stylesheet" href="app.css?v=5">
 </head>
 <body>
 
@@ -86,18 +86,21 @@
     <span id="saveStatus" class="muted" role="status" aria-live="polite"></span>
   </div>
 
-  <h3 class="set-h3">المستخدمون</h3>
-  <p class="muted set-note">هذه المنصة مغلقة: لا يستطيع أي زائر إنشاء حساب بنفسه. أضف حسابات من كان هنا فقط، وستعمل على هذا الجهاز.</p>
+  <h3 class="set-h3">الحسابات</h3>
+  <p class="muted set-note">هذه المنصة مغلقة: لا يستطيع أي زائر إنشاء حساب بنفسه. أنشئ الحسابات من هنا فقط، وتعمل على هذا الجهاز.</p>
   <div id="usersAdmin" class="users-admin"></div>
   <div class="add-user">
-    <label class="field">اسم المستخدم الجديد
-      <input id="admUserName" type="text" placeholder="الاسم الكامل" autocomplete="off" maxlength="40">
+    <label class="field">اسم المستخدم
+      <input id="admUserName" type="text" placeholder="مثال: mohamed.mohie" autocomplete="off" maxlength="40" dir="auto">
     </label>
-    <label class="field">رمز الدخول (من 4 إلى 8 أرقام)
-      <input id="admUserPin" type="password" placeholder="••••" dir="ltr" inputmode="numeric" autocomplete="off">
+    <label class="field">كلمة المرور (6 أحرف على الأقل)
+      <span class="pw-wrap">
+        <input id="admUserPass" type="password" placeholder="••••••••" autocomplete="new-password" dir="ltr">
+        <button id="btnAdmEye" class="pw-eye" type="button" aria-label="إظهار كلمة المرور" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M6.9 6.9C4.2 8.6 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.5 5-1.3"/><path d="M9.9 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.3 4.1"/></svg></button>
+      </span>
     </label>
     <div class="row">
-      <button id="btnAdmAddUser" class="primary small" type="button">إضافة مستخدم</button>
+      <button id="btnAdmAddUser" class="primary small" type="button">إنشاء الحساب</button>
       <span id="admUserMsg" class="muted" role="status" aria-live="polite"></span>
     </div>
   </div>
@@ -250,34 +253,21 @@
     </div>
     <h2>محمد محي</h2>
     <p class="login-brand">محامي ومستشار قانوني</p>
-    <p class="login-sub">منصة خاصة لإدارة القضايا والوثائق القانونية. الدخول بالحساب المخصص لك.</p>
+    <p class="login-sub">منصة خاصة لإدارة القضايا والوثائق القانونية. سجّل الدخول باسم المستخدم وكلمة المرور.</p>
 
-    <div id="loginEmpty" class="login-empty hidden">لا توجد حسابات على هذا الجهاز بعد.<br>لتفعيل الحسابات اضغط <b>دخول المسؤول</b> بالأسفل.</div>
+    <div id="loginEmpty" class="login-empty hidden">لا توجد حسابات مسجّلة على هذا الجهاز بعد.<br>أنشئ أول حساب من <b>دخول المسؤول</b> بالأسفل.</div>
 
-    <div id="loginUsersWrap" class="hidden">
-      <div class="login-users" id="loginUsers"></div>
-    </div>
-
-    <div id="newUserForm" class="hidden">
-      <div class="login-sep">إضافة مستخدم (وضع المدير)</div>
-      <label class="field">الاسم
-        <input id="newUserName" type="text" placeholder="الاسم الكامل" autocomplete="off" maxlength="40">
+    <div id="loginForm" class="login-form">
+      <label class="field">اسم المستخدم
+        <input id="loginUser" type="text" placeholder="اكتب اسم المستخدم" autocomplete="username" maxlength="40" dir="auto">
       </label>
-      <label class="field">رمز الدخول (من 4 إلى 8 أرقام)
-        <input id="newUserPin" type="password" placeholder="••••" dir="ltr" inputmode="numeric" autocomplete="off">
+      <label class="field">كلمة المرور
+        <span class="pw-wrap">
+          <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" dir="ltr">
+          <button id="btnLoginEye" class="pw-eye" type="button" aria-label="إظهار كلمة المرور" aria-pressed="false"><svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M6.9 6.9C4.2 8.6 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.5 5-1.3"/><path d="M9.9 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.3 4.1"/></svg></button>
+        </span>
       </label>
-      <button id="btnCreateUser" class="primary big" type="button">إضافة ودخول</button>
-    </div>
-
-    <div id="loginPinWrap" class="hidden">
-      <div class="login-sep">رمز الدخول مطلوب</div>
-      <label class="field">رمز الدخول للمستخدم <b id="pinWho"></b>
-        <input id="loginPin" type="password" dir="ltr" inputmode="numeric" autocomplete="off">
-      </label>
-      <div class="row">
-        <button id="btnLoginPin" class="primary" type="button">دخول</button>
-        <button id="btnPinBack" class="ghost" type="button">رجوع</button>
-      </div>
+      <button id="btnLoginGo" class="primary big" type="button">تسجيل الدخول</button>
     </div>
 
     <div id="loginMsg" class="login-msg" role="alert"></div>
@@ -294,7 +284,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
     </div>
     <h2>وضع المدير</h2>
-    <p class="login-sub">أدخل رمز المسؤول للوصول إلى الإعدادات وإدارة المستخدمين.</p>
+    <p class="login-sub">أدخل رمز المسؤول للوصول إلى الإعدادات وإدارة الحسابات.</p>
     <label class="field">رمز المسؤول
       <input id="adminCode" type="password" dir="ltr" autocomplete="off" placeholder="••••••">
     </label>
@@ -335,8 +325,8 @@
   </div>
 </div>
 
-<script src="docx.js?v=4"></script>
-<script src="pdfgen.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="docx.js?v=5"></script>
+<script src="pdfgen.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
