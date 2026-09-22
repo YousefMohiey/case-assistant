@@ -23,7 +23,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22c";
+const APP_VER = "2026-09-22d";
 
 const BRAND = {
   name: "محمد محيي",
@@ -61,7 +61,10 @@ const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ 
 ### نقاط قانونية أو إجراءات مطلوبة
 - (نقاط)
 
-كن دقيقًا ولا تضف معلومات غير موجودة في الوثيقة. إذا لم يتوفر بند، اكتب "غير مذكور".
+قواعد الدقة (مهمة جدًا، التزم بها حرفيًا):
+- اكتب فقط ما هو موجود في نص الوثيقة نفسها. ممنوع منعًا باتًا إضافة أي معلومة من عندك: لا أسماء ولا تواريخ ولا مبالغ ولا أرقام ولا مواد قانونية ولا مبادئ عامة غير مذكورة في الوثيقة.
+- انقل الأسماء والتواريخ والمبالغ والأرقام كما هي بالضبط، دون تقريب أو تغيير أو تخمين.
+- إذا لم يتوفر بند، اكتب "غير مذكور". ولا تخمن ما ليس في الوثيقة أبدًا.
 استخدم عناوين الأقسام بعلامة ### والنقاط بشرطة فقط، ولا تستخدم أي رموز تنسيق أخرى. اكتب كل نقطة في سطر واحد متصل، ولا تقسم النقاط على أكثر من سطر.
 
 قواعد الاقتباس (مهمة جدًا):
@@ -215,10 +218,9 @@ function updateCardHeads() {
 function chromeFor(which) {
   const en = which === "summaryEn" || (which === "translation" && trLang() === "en");
   const lang = en ? "en" : "ar";
-  const name = (currentSource && currentSource.name) || "";
-  const latinName = name && !/[\u0600-\u06FF]/.test(name);
   const date = lang === "en" ? dateEn() : dateAr();
-  const meta = date + (name && (lang === "ar" || latinName) ? (lang === "en" ? " | Source: " : " | المصدر: ") + name : "");
+  /* لا يظهر اسم ملف المصدر داخل المستندات (طلب المستخدم) */
+  const meta = date;
   const title = which === "summary" ? "ملخص القضية"
     : which === "summaryEn" ? "English Summary"
     : which === "translation" ? (lang === "en" ? "Case Translation" : "ترجمة القضية")
@@ -226,6 +228,7 @@ function chromeFor(which) {
   return {
     lang,
     meta,
+    date,
     title,
     brandLine: lang === "en" ? BRAND.nameEn : BRAND.name,
     brandSub: lang === "en" ? BRAND.tagEn : BRAND.tag,
@@ -1403,7 +1406,19 @@ async function verifyCites() {
   const host = $("summaryOut").closest(".card") || $("summaryOut").parentElement;
   let line = host.querySelector(".checkline");
   const chips = Array.from(document.querySelectorAll("#summaryOut button.cite"));
-  if (!chips.length || !currentCites.length) { if (line) line.remove(); return; }
+  /* نقاط بدون اقتباس: كل نقطة يفترض أن يدعمها اقتباس من النص الأصلي */
+  const c2 = { n: 0, quotes: [] };
+  const liNoQ = [];
+  try {
+    const bl = parseBlocksMd(last.summary || "", c2);
+    for (const b of bl) {
+      if (b.kind === "li" || b.kind === "oli") liNoQ.push(!b.spans.some((sp) => sp.cite));
+    }
+  } catch (e) {}
+  const noq = liNoQ.filter(Boolean).length;
+  const lis = Array.from(document.querySelectorAll("#summaryOut li"));
+  lis.forEach((el, i) => { if (liNoQ[i]) el.classList.add("li-noq"); });
+  if (!chips.length && !liNoQ.length) { if (line) line.remove(); return; }
   const cs = currentSource || { kind: "none" };
   let verdicts = null;
   let reason = "";
@@ -1441,17 +1456,21 @@ async function verifyCites() {
     line.className = "muted checkline";
     host.appendChild(line);
   }
+  const noqNote = noq
+    ? (noq === 1 ? " نقطة واحدة بدون اقتباس من النص (معلَّمة) يُفضَّل مراجعتها." : " " + noq + " نقاط بدون اقتباس من النص (معلَّمة) يُفضَّل مراجعتها.")
+    : "";
   if (verdicts) {
     const ok = verdicts.filter(Boolean).length;
     const total = verdicts.length;
-    if (ok === total) line.textContent = "التحقق الآلي: جميع الاقتباسات (" + total + ") موجودة حرفيًا في النص الأصلي.";
+    if (ok === total) line.textContent = "التحقق الآلي: جميع الاقتباسات (" + total + ") موجودة حرفيًا في النص الأصلي." + noqNote;
     else {
       const bad = verdicts.map((v, i) => (!v ? String(i + 1) : null)).filter(Boolean).join("، ");
-      line.textContent = "التحقق الآلي: " + ok + " من " + total + " اقتباسات موجودة حرفيًا. راجع المصدر " + bad + " يدويًا.";
+      line.textContent = "التحقق الآلي: " + ok + " من " + total + " اقتباسات موجودة حرفيًا. راجع المصادر " + bad + " يدويًا." + noqNote;
     }
-    line.classList.toggle("warn", ok !== total);
+    line.classList.toggle("warn", ok !== total || noq > 0);
   } else {
-    line.textContent = "التحقق الآلي غير متاح: " + reason;
+    line.textContent = "التحقق الآلي غير متاح: " + reason + noqNote;
+    line.classList.toggle("warn", noq > 0);
   }
 }
 
@@ -1572,11 +1591,15 @@ function buildPrintRoot(which) {
 
   root.classList.toggle("pr-ltr", c.lang === "en");
   root.innerHTML =
-    '<div class="pr-brand">' + escapeHtml(c.brandLine) + "</div>" +
-    '<div class="pr-tag">' + escapeHtml(c.brandSub) + "</div>" +
+    '<div class="pr-head">' +
+      '<div class="pr-head-id">' +
+        '<div class="pr-brand">' + escapeHtml(c.brandLine) + "</div>" +
+        '<div class="pr-tag">' + escapeHtml(c.brandSub) + "</div>" +
+      "</div>" +
+      '<div class="pr-head-date">' + escapeHtml(c.date) + "</div>" +
+    "</div>" +
     '<div class="pr-rule"></div>' +
     '<div class="pr-title">' + escapeHtml(c.title) + "</div>" +
-    '<div class="pr-meta">' + escapeHtml(c.meta) + "</div>" +
     parts.join("");
 }
 
@@ -1701,10 +1724,8 @@ function buildDocxBytes(which) {
 
   const c = chromeFor(which);
   const blocks = [
-    { k: "brand", runs: [{ t: c.brandLine }] },
-    { k: "tag", runs: [{ t: c.brandSub }] },
-    { k: "title", runs: [{ t: c.title }] },
-    { k: "meta", runs: [{ t: c.meta }] }
+    { k: "lhead", name: c.brandLine, tag: c.brandSub, date: c.date, lang: c.lang },
+    { k: "title", runs: [{ t: c.title }] }
   ];
   if (which === "full" || which === "summary") {
     blocks.push({ k: "h2", runs: [{ t: "الملخص" }] });
@@ -1760,9 +1781,9 @@ function setPageFootStyle(lang) {
     document.head.appendChild(el);
   }
   if (lang === "en") {
-    el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } }';
+    el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } @top-right { content: "Mohamed Mohiey"; font-family: "Times New Roman", "Tinos", serif; font-size: 8.5pt; color: #8a857d; } } @page :first { @top-right { content: ""; } }';
   } else {
-    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } }';
+    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } @top-left { content: "محمد محيي"; font-family: "Noto Naskh Arabic", serif; font-size: 8.5pt; color: #8a857d; } } @page :first { @top-left { content: ""; } }';
   }
 }
 function printExport(which) {

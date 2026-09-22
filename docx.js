@@ -182,6 +182,9 @@
   var GOLD_RULE_XML = '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="2" w:color="B08A3E"/></w:pBdr>' +
     '<w:spacing w:before="20" w:after="140" w:line="240" w:lineRule="auto"/></w:pPr></w:p>';
 
+  var NAVY_RULE_XML = '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="16" w:space="2" w:color="1F3D7A"/></w:pBdr>' +
+    '<w:spacing w:before="60" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr></w:p>';
+
   function withColor(runs, color) {
     return runs.map(function (r) { return { t: r.t, b: r.b, i: r.i, sup: r.sup, c: r.c || color }; });
   }
@@ -191,7 +194,8 @@
     switch (b.k) {
       case "brand": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "1F3D7A"), { sz: SZ.brand, jc: "center", after: 30, line: 260 });
       case "tag": return parXml(withColor(runs, "6D4A0F"), { sz: SZ.tag, jc: "center", after: 60, line: 240 }) + GOLD_RULE_XML;
-      case "title": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "17140F"), { sz: SZ.title, jc: "center", after: 40, line: 300 }) + TITLE_RULE_XML;
+      case "lhead": return lheadXml(b);
+      case "title": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "17140F"), { sz: SZ.title, jc: "center", before: 160, after: 320, line: 300 });
       case "meta": return parXml(withColor(runs, "605C56"), { sz: SZ.meta, jc: "center", after: 300, line: 260 });
       case "h2": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "1F3D7A"), { style: P_STYLE.h2, sz: SZ.h2, before: 340, after: 160, line: 280, keepNext: true, border: { color: "D9C9A3", sz: 10, space: 4 } });
       case "h3": return parXml(withColor(runs.map(function (r) { return { t: r.t, b: true, c: r.c }; }), "33302A"), { style: P_STYLE.h3, sz: SZ.h3, before: 280, after: 120, line: 280, keepNext: true });
@@ -203,6 +207,15 @@
       case "foot": return ""; /* ملغى: لا يظهر اسم الأداة داخل المستندات */
       default: return parXml(runs, { sz: SZ.body, jc: "both" });
     }
+  }
+
+  /* ترويسة المستند: الاسم واللقب والتاريخ كتلة واحدة جهة البداية، بدون أي محاذاة صريحة
+     (المحاذاة الطبيعية start تتصرف صح في كل البرامج: يمين للعربية ويسار للإنجليزية) */
+  function lheadXml(b) {
+    var nameP = parXml(withColor([{ t: b.name }], "1F3D7A").map(function (r) { return { t: r.t, b: true, c: r.c }; }), { sz: SZ.brand, after: 20, line: 260 });
+    var tagP = parXml(withColor([{ t: b.tag }], "6D4A0F"), { sz: SZ.tag, after: 0, line: 240 });
+    var dateP = parXml(withColor([{ t: b.date }], "605C56"), { sz: SZ.meta, after: 0, line: 240 });
+    return nameP + tagP + dateP + NAVY_RULE_XML + GOLD_RULE_XML;
   }
 
   function footerXml(lang) {

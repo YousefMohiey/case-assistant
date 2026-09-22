@@ -689,33 +689,45 @@ details ol { margin: 8px 0 0; padding-right: 20px; }
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+  .print-root .pr-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 8mm;
+  }
+  .print-root .pr-head-id { text-align: start; }
   .print-root .pr-brand {
     font-family: "Noto Naskh Arabic", serif;
-    font-size: 18pt;
+    font-size: 16pt;
     font-weight: 700;
     color: #1f3d7a;
-    text-align: center;
-    margin: 0 0 0.8mm;
+    margin: 0 0 0.6mm;
   }
   .print-root .pr-tag {
-    font-size: 10pt;
+    font-size: 9.5pt;
     color: #6d4a0f;
-    text-align: center;
-    margin: 0 0 2.6mm;
-    letter-spacing: 0.5px;
+    margin: 0;
+    letter-spacing: 0.4px;
+  }
+  .print-root .pr-head-date {
+    font-size: 10pt;
+    color: #605c56;
+    text-align: end;
+    white-space: nowrap;
+    padding-bottom: 0.4mm;
   }
   .print-root .pr-rule {
     height: 1.6mm;
     border-top: 2.2pt solid #1f3d7a;
     border-bottom: 1pt solid #b08a3e;
-    margin: 0 0 4.5mm;
+    margin: 2.8mm 0 5mm;
   }
   .print-root .pr-title {
     font-family: "Noto Naskh Arabic", serif;
     font-size: 16.5pt;
     font-weight: 700;
     color: #17140f;
-    margin: 0 0 1.5mm;
+    margin: 0 0 7mm;
     text-align: center;
   }
   .print-root .pr-meta {
@@ -827,3 +839,6 @@ button.cite.cite-w { background: #fbeedd; color: #8a4b10; box-shadow: inset 0 0 
   box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.18);
 }
 .ver-line { font-size: 12.5px; margin-top: 6px; }
+
+/* نقاط بدون اقتباس من النص الأصلي */
+#summaryOut li.li-noq { border-inline-start: 3px solid #d9a94e; padding-inline-start: 9px; }
