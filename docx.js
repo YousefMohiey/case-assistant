@@ -230,7 +230,7 @@
       '<w:fldSimple w:instr=" PAGE "><w:r>' + rprNum + "<w:t>1</w:t></w:r></w:fldSimple>" +
       '<w:r>' + rpr + '<w:t xml:space="preserve">' + (en ? " of " : " من ") + "</w:t></w:r>" +
       '<w:fldSimple w:instr=" NUMPAGES "><w:r>' + rprNum + "<w:t>1</w:t></w:r></w:fldSimple>" +
-      '<w:r>' + rprName + '<w:t xml:space="preserve">   ·   ' + (en ? "Mohamed Mohiey" : "محمد محيي") + "</w:t></w:r>" +
+      '<w:r>' + rprName + '<w:t xml:space="preserve">   ·   ' + (en ? "Mohamed Mohiey" : "محمد محي") + "</w:t></w:r>" +
       "</w:p></w:ftr>";
   }
 

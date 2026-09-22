@@ -23,10 +23,10 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22e";
+const APP_VER = "2026-09-22f";
 
 const BRAND = {
-  name: "محمد محيي",
+  name: "محمد محي",
   nameEn: "Mohamed Mohiey",
   tag: "محامي ومستشار قانوني",
   tagEn: "Attorney at Law and Legal Counsel"
@@ -1777,9 +1777,57 @@ function setPageFootStyle(lang) {
   if (lang === "en") {
     el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } @bottom-left { content: "Mohamed Mohiey"; font-family: "Times New Roman", "Tinos", serif; font-size: 7.5pt; color: #9a958d; } }';
   } else {
-    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } @bottom-left { content: "محمد محيي"; font-family: "Noto Naskh Arabic", serif; font-size: 7.5pt; color: #9a958d; } }';
+    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } @bottom-left { content: "محمد محي"; font-family: "Noto Naskh Arabic", serif; font-size: 7.5pt; color: #9a958d; } }';
   }
 }
+/* نموذج المستند لتوليد PDF حقيقي (pdfgen.js) */
+function buildDocModel(which) {
+  which = which || "full";
+  const sumCtx = { n: 0, quotes: [] };
+  const sumBlocks = last.summary ? parseBlocksMd(last.summary, sumCtx) : [];
+  const enCtx = { n: 0, quotes: [] };
+  const enBlocks = last.summaryEn ? parseBlocksMd(stripCiteMarks(last.summaryEn), enCtx) : [];
+  const trCtx = { n: 0, quotes: [] };
+  const trBlocks = last.translation ? parseBlocksMd(stripCiteMarks(last.translation), trCtx) : [];
+  const c = chromeFor(which);
+  const sections = [];
+  if (which === "full" || which === "summary") {
+    sections.push({
+      head: "الملخص",
+      blocks: sumBlocks,
+      refs: sumCtx.quotes.map((q, i) => { const r = refLabel(q, i); return { n: r.n, text: r.text, pg: r.pg }; })
+    });
+  }
+  if ((which === "full" || which === "summaryEn") && enBlocks.length) {
+    sections.push({ head: "English Summary", blocks: enBlocks, refs: [], pageBreakBefore: which === "full" });
+  }
+  if ((which === "full" || which === "translation") && trBlocks.length) {
+    sections.push({ head: c.trHead, blocks: trBlocks, refs: [], pageBreakBefore: which === "full" });
+  }
+  return { lang: c.lang, title: c.title, meta: c.date, sections: sections };
+}
+
+/* تنزيل PDF حقيقي (نص حقيقي) بدون نافذة طباعة */
+async function pdfExport(which) {
+  which = which || "full";
+  if (!anyContent()) { setStatus("لا يوجد ملخص للتحميل بعد", true); return; }
+  setStatus("جاري تجهيز ملف PDF...");
+  try {
+    const blob = await QAPDF.render(buildDocModel(which));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (DL_NAMES[which] || DL_NAMES.full).print + "-" + isoDate() + ".pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setStatus("تم تنزيل ملف PDF.");
+  } catch (e) {
+    setStatus("تعذر إنشاء ملف PDF: " + ((e && e.message) || e), true);
+  }
+}
+
 function printExport(which) {
   which = which || "full";
   if (!anyContent()) { setStatus("لا يوجد ملخص للطباعة بعد", true); return; }
@@ -2011,6 +2059,7 @@ function init() {
       const which = b.getAttribute("data-dl");
       const fmt = b.getAttribute("data-fmt");
       if (fmt === "word") exportWord(which);
+      else if (fmt === "pdf") pdfExport(which);
       else printExport(which);
     });
   }
