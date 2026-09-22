@@ -24,8 +24,8 @@ const LS = {
 const BRAND = {
   name: "محمد محيي",
   nameEn: "Mohamed Mohiey",
-  tag: "محامي",
-  tagEn: "Attorney at Law"
+  tag: "محامي ومستشار قانوني",
+  tagEn: "Attorney at Law and Legal Counsel"
 };
 /* وضع المدير محمي برمز سري: البصمة فقط موجودة هنا، والرمز نفسه لا يُخزَّن في أي مكان. */
 const ADMIN_HASH = "SERVER_SIDE";
@@ -58,7 +58,7 @@ const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ 
 - (نقاط)
 
 كن دقيقًا ولا تضف معلومات غير موجودة في الوثيقة. إذا لم يتوفر بند، اكتب "غير مذكور".
-استخدم عناوين الأقسام بعلامة ### والنقاط بشرطة فقط، ولا تستخدم أي رموز تنسيق أخرى.
+استخدم عناوين الأقسام بعلامة ### والنقاط بشرطة فقط، ولا تستخدم أي رموز تنسيق أخرى. اكتب كل نقطة في سطر واحد متصل، ولا تقسم النقاط على أكثر من سطر.
 
 قواعد الاقتباس (مهمة جدًا):
 - بعد كل نقطة، أضف الجزء الدال من نص الوثيقة الذي تدعمه هذه النقطة، منسوخًا حرفيًا كما هو.
@@ -77,7 +77,7 @@ const PROMPT = `أنت مساعد قانوني محترف يعمل لمحامٍ 
 اكتب هذا الملخص بالكامل بالحروف الإنجليزية وبدون أي حروف عربية: انقل أسماء الأشخاص والمحاكم والجهات بالحروف اللاتينية (نقل صوتي).
 وبدون أي علامات ‹ › أو اقتباسات في هذا القسم.
 
-3) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على دقة أسماء الأطراف والمحاكم والتواريخ والأرقام، ولا تختصر أي جزء، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم. وإذا كانت الترجمة إلى الإنجليزية فلا تكتب فيها أي حروف عربية: انقل الأسماء العربية بالحروف اللاتينية (نقل صوتي).
+3) الترجمة: ترجم الوثيقة كاملة إلى اللغة الأخرى: إذا كانت الوثيقة بالعربية فترجمها إلى الإنجليزية، وإذا كانت بالإنجليزية فترجمها إلى العربية، وإذا كانت بلغة أخرى فترجمها إلى العربية. الترجمة كاملة ودقيقة وبأسلوب قانوني رسمي، مع الحفاظ على دقة أسماء الأطراف والمحاكم والتواريخ والأرقام، ولا تختصر أي جزء، ولا تنسخ النص الأصلي ولا تكرره، ولا تترك الترجمة بلغة الوثيقة نفسها أبدًا، وبدون أي علامات ‹ › أو اقتباسات في هذا القسم. وإذا كانت الترجمة إلى الإنجليزية فلا تكتب فيها أي حروف عربية: انقل الأسماء العربية بالحروف اللاتينية (نقل صوتي). واكتب الترجمة فقرات متصلة دون تقسيم يدوي للأسطر.
 
 أخرج النتيجة بهذا الشكل بالضبط، دون أي مقدمات:
 
@@ -132,6 +132,80 @@ function trLang() {
     else if (/[A-Za-z]/.test(ch)) lat++;
   }
   return (ar > 0 && ar >= lat * 0.2) ? "ar" : "en";
+}
+
+/* تحديد لغة نص: عربي أو إنجليزي أو null لو غير واضح */
+function detectTextLang(str) {
+  str = String(str || "").slice(0, 4000);
+  let ar = 0, lat = 0;
+  for (const ch of str) {
+    if (/[\u0600-\u06FF]/.test(ch)) ar++;
+    else if (/[A-Za-z]/.test(ch)) lat++;
+  }
+  if (ar >= 30 && ar > lat * 0.6) return "ar";
+  if (lat >= 50 && lat > ar * 2) return "en";
+  return null;
+}
+/* لغة الوثيقة الأصلية: من النص الملصوق أو من الاقتباسات الحرفية */
+function guessSourceLang(text, quotes) {
+  if (text && text.trim()) return detectTextLang(text);
+  const joined = (quotes || []).map(q => q.text || "").join(" ");
+  if (joined.trim()) return detectTextLang(joined);
+  return null;
+}
+const TR_PROMPT = (target) => `أنت مترجم قانوني محترف. ترجم النص المرفق بالكامل إلى اللغة ${target === "en" ? "الإنجليزية" : "العربية"} ترجمة قانونية رسمية دقيقة.
+- الترجمة كاملة من أول النص إلى آخره، دون اختصار أو تلخيص، ودون تكرار النص الأصلي.
+- حافظ على دقة أسماء الأطراف والمحاكم والتواريخ والأرقام.
+${target === "en" ? "- اكتب كل شيء بالحروف الإنجليزية فقط، وممنوع أي حرف عربي: انقل الأسماء العربية بالحروف اللاتينية (نقل صوتي).\n" : ""}- اكتب النص فقرات متصلة دون تقسيم يدوي للأسطر.
+- لا تكتب أي عناوين أو مقدمات أو شرح، أخرج الترجمة فقط.`;
+async function translateWithGemini(key, text, target) {
+  const model = modelFor("gemini");
+  const parts = [{ text: TR_PROMPT(target) }];
+  if (attached && attached.mime === "text/plain") parts.push({ text: "\n\nالنص:\n" + attached.text });
+  else if (attached) parts.push({ inlineData: { mimeType: attached.mime, data: attached.data } });
+  if (text) parts.push({ text: "\n\nالنص:\n" + text });
+  const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1, maxOutputTokens: 32768 } })
+  });
+  let data = null; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new ApiError(apiErrorMessage(res.status, data, false), isRetryable(res.status));
+  const cand = data && data.candidates && data.candidates[0];
+  return (((cand && cand.content && cand.content.parts) || []).map(x => x.text || "").join("")).trim();
+}
+async function translateWithOpenRouter(key, text, target) {
+  const model = modelFor("openrouter");
+  if (attached && attached.mime === "application/pdf") return "";
+  const base = TR_PROMPT(target) + (text ? "\n\nالنص:\n" + text : "");
+  let content;
+  if (attached && attached.mime === "text/plain") content = base + "\n\nالنص:\n" + attached.text;
+  else if (attached) content = [{ type: "text", text: base }, { type: "image_url", image_url: { url: attached.dataUrl } }];
+  else content = base;
+  const res = await fetch(`${OR_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+    body: JSON.stringify({ model, messages: [{ role: "user", content }], temperature: 0.1, max_tokens: 8192 })
+  });
+  let data = null; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new ApiError(apiErrorMessage(res.status, data, true), isRetryable(res.status));
+  const ch = data && data.choices && data.choices[0];
+  return String((ch && ch.message && ch.message.content) || "").trim();
+}
+/* أقسام اللغة الإنجليزية تُعرض باتجاه إنجليزي: العنوان يسار وزر Copy يمين */
+function updateCardHeads() {
+  const trEn = trLang() === "en";
+  const trRow = document.getElementById("trRow");
+  if (trRow) {
+    trRow.classList.toggle("head-ltr", trEn);
+    const bt = trRow.querySelector("[data-copy='translation']");
+    if (bt) bt.textContent = trEn ? "Copy" : "نسخ";
+  }
+  const h2 = document.getElementById("transTitle");
+  if (h2) {
+    const hasTr = !!(last.translation && last.translation.trim());
+    h2.textContent = hasTr ? (trEn ? "الترجمة إلى الإنجليزية" : "الترجمة إلى العربية") : "الترجمة";
+  }
 }
 /* بيانات رأس المستند (عنوان/تاريخ/فوتر) حسب لغة الملف */
 function chromeFor(which) {
@@ -713,8 +787,17 @@ function parseBlocksMd(md, ctx) {
       continue;
     }
     if (/^(---+|\*\*\*+|___+)$/.test(line)) { flush(); blocks.push({ kind: "hr" }); continue; }
-    if ((m = line.match(/^[-*•]\s+(.*)$/))) { flush(); blocks.push({ kind: "li", spans: inlineSpans(m[1], ctx) }); continue; }
-    if ((m = line.match(/^(\d+)[.)]\s+(.*)$/))) { flush(); blocks.push({ kind: "oli", num: m[1], spans: inlineSpans(m[2], ctx) }); continue; }
+    if ((m = line.match(/^[-*•]\s+(.*)$/))) { flush(); blocks.push({ kind: "li", raw: m[1], _snap: { n: ctx.n, len: ctx.quotes.length }, spans: inlineSpans(m[1], ctx) }); continue; }
+    if ((m = line.match(/^(\d+)[.)]\s+(.*)$/))) { flush(); blocks.push({ kind: "oli", num: m[1], raw: m[2], _snap: { n: ctx.n, len: ctx.quotes.length }, spans: inlineSpans(m[2], ctx) }); continue; }
+    const lastB = blocks[blocks.length - 1];
+    if (para.length === 0 && lastB && (lastB.kind === "li" || lastB.kind === "oli") && typeof lastB.raw === "string") {
+      /* سطر استكمال لنقطة مقسومة: نلحمه بآخر نقطة بدل أن يصير فقرة منفصلة */
+      ctx.n = lastB._snap.n;
+      ctx.quotes.length = lastB._snap.len;
+      lastB.raw += " " + line;
+      lastB.spans = inlineSpans(lastB.raw, ctx);
+      continue;
+    }
     para.push(line);
   }
   flush();
@@ -1212,11 +1295,20 @@ function renderSource(src) {
     note.textContent = "هذا هو النص الأصلي الذي تم التحليل منه. أرقام المصادر في الملخص تنقلك إلى الموضع هنا.";
     note.classList.remove("hidden");
   } else if (src.url && src.kind === "pdf") {
-    const f = document.createElement("iframe");
-    f.className = "srcpdf";
-    f.title = "الملف الأصلي PDF";
-    f.src = src.url + "#view=FitH";
-    body.appendChild(f);
+    const canInline = !window.matchMedia("(max-width: 760px)").matches && (navigator.pdfViewerEnabled !== false);
+    if (canInline) {
+      const f = document.createElement("iframe");
+      f.className = "srcpdf";
+      f.title = "الملف الأصلي PDF";
+      f.src = src.url + "#view=FitH";
+      body.appendChild(f);
+    } else {
+      /* هواتف أندرويد لا تعرض PDF داخل الصفحة: بديل مرتب بزرين */
+      const box = document.createElement("div");
+      box.className = "srcpdf-note";
+      box.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><div><b>عرض PDF داخل الصفحة غير مدعوم على الهاتف.</b><span>افتح الملف في قارئ الجهاز، أو استخدم العارض الكبير للتنقل بين الصفحات والاقتباسات.</span></div>';
+      body.appendChild(box);
+    }
     open.classList.remove("hidden");
     big.classList.remove("hidden");
     open.onclick = () => window.open(src.url, "_blank");
@@ -1318,6 +1410,7 @@ function showResult(parsed, source) {
   $("enOut").innerHTML = hasEn ? blocksToHtml(parseBlocksMd(stripCiteMarks(last.summaryEn), { n: 0, quotes: [] }), "screen", true) : "";
   const trSrc = stripCiteMarks(last.translation) || "(لا توجد ترجمة)";
   $("transOut").innerHTML = blocksToHtml(parseBlocksMd(trSrc, { n: 0, quotes: [] }), "screen", true);
+  updateCardHeads();
   show($("citeHint"), ctx.quotes.length > 0);
   renderSource(currentSource);
   refreshDownloadRows();
@@ -1551,10 +1644,35 @@ async function run() {
       else src = { kind: "image", url: attached.dataUrl || null, name: attached.name };
     }
 
+    /* فحص لغة الترجمة: لو رجعت بنفس لغة الوثيقة نعيد الترجمة تلقائيًا للغة الأخرى */
+    let trNote = "";
+    const qctx0 = { n: 0, quotes: [] };
+    parseBlocksMd(result.parsed.summary || "", qctx0);
+    const srcLang = guessSourceLang(text, qctx0.quotes);
+    const trRaw = String(result.parsed.translation || "");
+    const fixTarget = srcLang === "ar" ? "en" : (srcLang === "en" ? "ar" : null);
+    if (fixTarget && (!trRaw.trim() || detectTextLang(trRaw) === srcLang)) {
+      setStatus("الترجمة رجعت " + (trRaw.trim() ? "بنفس لغة الوثيقة" : "غير مكتملة") + "، جاري إعادة الترجمة تلقائيًا...");
+      try {
+        const fixed = usedProvider === "gemini"
+          ? await translateWithGemini(keyFor("gemini"), text, fixTarget)
+          : await translateWithOpenRouter(keyFor("openrouter"), text, fixTarget);
+        if (fixed && fixed.trim()) {
+          result.parsed.translation = fixed.trim();
+          trNote = " وأُعيدت الترجمة تلقائيًا إلى " + (fixTarget === "en" ? "الإنجليزية" : "العربية");
+        } else {
+          trNote = " (تعذر تصحيح الترجمة تلقائيًا، أعد المحاولة)";
+        }
+      } catch (e2) {
+        trNote = " (تعذر تصحيح الترجمة تلقائيًا، أعد المحاولة)";
+      }
+    }
+
     showResult(result.parsed, src);
     saveHistory(srcTitle, result.parsed, result.model, src);
     let msg = "تم";
     if (usedProvider !== p) msg += " (تم التحويل تلقائيًا إلى " + labelOf(usedProvider) + ")";
+    if (trNote) msg += trNote;
     if (result.truncated) msg += ". ملاحظة: النتيجة قد تكون مقطوعة لطول النص، جرب تقسيم القضية.";
     setStatus(msg, false);
   } catch (e) {
