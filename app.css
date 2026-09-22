@@ -806,3 +806,24 @@ button.cite.cite-w { background: #fbeedd; color: #8a4b10; box-shadow: inset 0 0 
 .attach-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .fileinfo { margin: 8px 0 0; font-size: 13.5px; }
 .fileinfo:empty { display: none; }
+
+/* ===== شريط التحديث ورقم الإصدار ===== */
+.updbar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 6000;
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--accent, #1f3d7a);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 13px 14px;
+  cursor: pointer;
+  box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.18);
+}
+.ver-line { font-size: 12.5px; margin-top: 6px; }

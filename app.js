@@ -22,6 +22,9 @@ const LS = {
   draft: "qa_draft"
 };
 
+/* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
+const APP_VER = "2026-09-22c";
+
 const BRAND = {
   name: "محمد محيي",
   nameEn: "Mohamed Mohiey",
@@ -1385,6 +1388,16 @@ async function attachFile(f) {
   $("fileInfo").textContent = name + " (" + (f.size / 1048576).toFixed(1) + " ميجا" + (attached.fromDocx ? ", تم استخراج النص" : "") + ")";
 }
 
+/* ===== التحديثات ===== */
+async function checkUpdate() {
+  try {
+    const r = await fetch("version.json?ts=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j && j.v && String(j.v) !== APP_VER) show($("updBar"), true);
+  } catch (e) {}
+}
+
 /* ===== التحقق الآلي من الاقتباسات ===== */
 async function verifyCites() {
   const host = $("summaryOut").closest(".card") || $("summaryOut").parentElement;
@@ -2052,7 +2065,19 @@ function init() {
   try { const d = localStorage.getItem(LS.draft); if (d) $("caseText").value = d; } catch (e) {}
   buildPrintRoot("full");
   if (keyFor(provider())) refreshModels(true);
-  try { if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
+  try { if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {}); } catch (e) {}
+
+  /* رقم الإصدار + التنبيه عند توفر تحديث جديد */
+  try { $("verTag").textContent = APP_VER; } catch (e) {}
+  if ($("updBar")) {
+    $("updBar").addEventListener("click", () => {
+      try { const u = new URL(location.href); u.searchParams.set("u", String(Date.now())); location.replace(u.toString()); }
+      catch (e) { location.reload(); }
+    });
+  }
+  checkUpdate();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
+  setInterval(checkUpdate, 15 * 60 * 1000);
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

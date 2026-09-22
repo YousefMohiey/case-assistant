@@ -16,9 +16,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="app.css?v=1">
 </head>
 <body>
+
+<button id="updBar" class="updbar hidden" type="button">يتوفر تحديث جديد للموقع. اضغط هنا للتحديث الآن.</button>
 
 <header>
   <div class="hdr-inner">
@@ -238,6 +240,7 @@
 <footer>
   <p class="muted">منصة خاصة. النصوص تُرسل إلى مزود الخدمة المختار فقط ولا تُخزَّن في أي مكان آخر.</p>
   <p class="foot-brand"><span id="adminTap">محمد محيي</span> <span class="foot-dot">•</span> محامي ومستشار قانوني</p>
+  <p class="muted ver-line">الإصدار <span id="verTag"></span></p>
 </footer>
 
 <div id="login" class="login hidden" role="dialog" aria-modal="true" aria-label="تسجيل الدخول">
@@ -332,7 +335,7 @@
   </div>
 </div>
 
-<script src="docx.js"></script>
-<script src="app.js"></script>
+<script src="docx.js?v=1"></script>
+<script src="app.js?v=1"></script>
 </body>
 </html>
