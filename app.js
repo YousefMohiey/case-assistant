@@ -23,7 +23,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22d";
+const APP_VER = "2026-09-22e";
 
 const BRAND = {
   name: "محمد محيي",
@@ -1590,16 +1590,10 @@ function buildPrintRoot(which) {
   }
 
   root.classList.toggle("pr-ltr", c.lang === "en");
+  /* بلا ترويسة علوية: عنوان المستند ثم التاريخ فقط. الاسم يظهر بخط صغير جدا في تذييل كل صفحة. */
   root.innerHTML =
-    '<div class="pr-head">' +
-      '<div class="pr-head-id">' +
-        '<div class="pr-brand">' + escapeHtml(c.brandLine) + "</div>" +
-        '<div class="pr-tag">' + escapeHtml(c.brandSub) + "</div>" +
-      "</div>" +
-      '<div class="pr-head-date">' + escapeHtml(c.date) + "</div>" +
-    "</div>" +
-    '<div class="pr-rule"></div>' +
     '<div class="pr-title">' + escapeHtml(c.title) + "</div>" +
+    '<div class="pr-meta">' + escapeHtml(c.date) + "</div>" +
     parts.join("");
 }
 
@@ -1724,8 +1718,8 @@ function buildDocxBytes(which) {
 
   const c = chromeFor(which);
   const blocks = [
-    { k: "lhead", name: c.brandLine, tag: c.brandSub, date: c.date, lang: c.lang },
-    { k: "title", runs: [{ t: c.title }] }
+    { k: "title", runs: [{ t: c.title }] },
+    { k: "meta", runs: [{ t: c.date }] }
   ];
   if (which === "full" || which === "summary") {
     blocks.push({ k: "h2", runs: [{ t: "الملخص" }] });
@@ -1781,9 +1775,9 @@ function setPageFootStyle(lang) {
     document.head.appendChild(el);
   }
   if (lang === "en") {
-    el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } @top-right { content: "Mohamed Mohiey"; font-family: "Times New Roman", "Tinos", serif; font-size: 8.5pt; color: #8a857d; } } @page :first { @top-right { content: ""; } }';
+    el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } @bottom-left { content: "Mohamed Mohiey"; font-family: "Times New Roman", "Tinos", serif; font-size: 7.5pt; color: #9a958d; } }';
   } else {
-    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } @top-left { content: "محمد محيي"; font-family: "Noto Naskh Arabic", serif; font-size: 8.5pt; color: #8a857d; } } @page :first { @top-left { content: ""; } }';
+    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } @bottom-left { content: "محمد محيي"; font-family: "Noto Naskh Arabic", serif; font-size: 7.5pt; color: #9a958d; } }';
   }
 }
 function printExport(which) {

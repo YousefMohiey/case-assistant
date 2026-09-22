@@ -222,6 +222,7 @@
     var en = lang === "en";
     var rpr = '<w:rPr><w:rFonts w:ascii="' + FONT_LA + '" w:hAnsi="' + FONT_LA + '" w:cs="' + FONT_CS + '"/><w:color w:val="605C56"/><w:sz w:val="18"/><w:szCs w:val="18"/>' + (en ? "" : "<w:rtl/>") + "</w:rPr>";
     var rprNum = '<w:rPr><w:rFonts w:ascii="' + FONT_LA + '" w:hAnsi="' + FONT_LA + '"/><w:color w:val="605C56"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>';
+    var rprName = '<w:rPr><w:rFonts w:ascii="' + FONT_LA + '" w:hAnsi="' + FONT_LA + '" w:cs="' + FONT_CS + '"/><w:color w:val="9A958D"/><w:sz w:val="15"/><w:szCs w:val="16"/>' + (en ? "" : "<w:rtl/>") + "</w:rPr>";
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
       "<w:p><w:pPr>" + (en ? "" : "<w:bidi/>") + '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' +
@@ -229,18 +230,16 @@
       '<w:fldSimple w:instr=" PAGE "><w:r>' + rprNum + "<w:t>1</w:t></w:r></w:fldSimple>" +
       '<w:r>' + rpr + '<w:t xml:space="preserve">' + (en ? " of " : " من ") + "</w:t></w:r>" +
       '<w:fldSimple w:instr=" NUMPAGES "><w:r>' + rprNum + "<w:t>1</w:t></w:r></w:fldSimple>" +
+      '<w:r>' + rprName + '<w:t xml:space="preserve">   ·   ' + (en ? "Mohamed Mohiey" : "محمد محيي") + "</w:t></w:r>" +
       "</w:p></w:ftr>";
   }
 
   function headerXml(lang) {
-    var en = lang === "en";
-    var txt = en ? "Mohamed Mohiey" : "محمد محيي";
-    var rpr = '<w:rPr><w:rFonts w:ascii="' + FONT_LA + '" w:hAnsi="' + FONT_LA + '" w:cs="' + FONT_CS + '"/><w:color w:val="8A857D"/><w:sz w:val="16"/><w:szCs w:val="18"/>' + (en ? "" : "<w:rtl/>") + "</w:rPr>";
+    /* بلا اسم أعلى الصفحات: الترويسة العلوية أزيلت بطلب المستخدم، والاسم في التذييل */
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-      "<w:p><w:pPr>" + (en ? "" : "<w:bidi/>") + '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="' + (en ? "right" : "left") + '"/></w:pPr>' +
-      "<w:r>" + rpr + '<w:t xml:space="preserve">' + esc(txt) + "</w:t></w:r>" +
-      "</w:p></w:hdr>";
+      '<w:p><w:pPr><w:spacing w:after="0" w:line="200" w:lineRule="auto"/></w:pPr></w:p>' +
+      "</w:hdr>";
   }
 
   function coreXml(title) {
@@ -319,7 +318,6 @@
       '<w:footerReference w:type="default" r:id="rId2"/>' +
       '<w:pgSz w:w="11906" w:h="16838"/>' +
       '<w:pgMar w:top="1134" w:right="1134" w:bottom="1247" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/>' +
-      "<w:titlePg/>" +
       (lang === "en" ? "" : "<w:bidi/>") +
       "</w:sectPr>" +
       "</w:body></w:document>";

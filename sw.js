@@ -1,6 +1,6 @@
 /* عامل الخدمة: تثبيت الموقع كتطبيق + عمل أساسي دون اتصال (الشبكة أولًا) */
-const CACHE = "qa-shell-v3";
-const SHELL = ["./", "./index.html", "./app.css?v=2", "./app.js?v=2", "./docx.js?v=2", "./manifest.json", "./version.json", "./favicon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png", "./vendor/pdf.min.mjs"];
+const CACHE = "qa-shell-v4";
+const SHELL = ["./", "./index.html", "./app.css?v=3", "./app.js?v=3", "./docx.js?v=3", "./manifest.json", "./version.json", "./favicon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png", "./vendor/pdf.min.mjs"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting()));
