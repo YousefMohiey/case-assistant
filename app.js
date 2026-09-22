@@ -22,11 +22,13 @@ const LS = {
 };
 
 const BRAND = {
-  ar: "مكتب محمد محيي للمحاماة",
-  en: "Mohiey Law Firm",
-  tool: "مساعد القضايا",
-  toolEn: "Case Assistant"
+  name: "محمد محيي",
+  nameEn: "Mohamed Mohiey",
+  tag: "محامي",
+  tagEn: "Attorney at Law"
 };
+/* وضع المدير محمي برمز سري: البصمة فقط موجودة هنا، والرمز نفسه لا يُخزَّن في أي مكان. */
+const ADMIN_HASH = "SERVER_SIDE";
 
 const $ = (id) => document.getElementById(id);
 
@@ -139,16 +141,16 @@ function chromeFor(which) {
   const latinName = name && !/[\u0600-\u06FF]/.test(name);
   const date = lang === "en" ? dateEn() : dateAr();
   const meta = date + (name && (lang === "ar" || latinName) ? (lang === "en" ? " | Source: " : " | المصدر: ") + name : "");
-  const title = which === "summary" ? "ملخص قضية"
+  const title = which === "summary" ? "ملخص القضية"
     : which === "summaryEn" ? "English Summary"
-    : which === "translation" ? (lang === "en" ? "Case Translation" : "ترجمة قضية")
-    : "ملخص وترجمة قضية";
+    : which === "translation" ? (lang === "en" ? "Case Translation" : "ترجمة القضية")
+    : "ملف القضية الكامل";
   return {
     lang,
     meta,
     title,
-    brandLine: lang === "en" ? BRAND.en : BRAND.ar,
-    foot: lang === "en" ? "Prepared with " + BRAND.toolEn : "أُعد بواسطة " + BRAND.tool + " - " + BRAND.ar,
+    brandLine: lang === "en" ? BRAND.nameEn : BRAND.name,
+    brandSub: lang === "en" ? BRAND.tagEn : BRAND.tag,
     trHead: lang === "en" ? "English Translation" : "الترجمة"
   };
 }
@@ -169,8 +171,7 @@ function currentUser() {
   const id = localStorage.getItem(LS.activeUser) || "";
   return loadUsers().find(u => u.id === id) || null;
 }
-async function hashPin(pin) {
-  const s = "qa::" + pin;
+async function sha256hex(s) {
   try {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -179,6 +180,19 @@ async function hashPin(pin) {
     for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
     return "djb2_" + h.toString(16);
   }
+}
+function newSalt() {
+  const a = new Uint8Array(8);
+  try { crypto.getRandomValues(a); } catch (e) { for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256); }
+  return Array.from(a).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+/* الرمز يُخزَّن مجزَّأ مع ملح خاص لكل مستخدم */
+async function hashPin(pin, salt) {
+  return salt ? sha256hex(salt + "::" + pin) : sha256hex("qa::" + pin);
+}
+async function verifyPin(u, v) {
+  const h = await hashPin(v, u.salt);
+  return !!u.pin && h === u.pin;
 }
 function userHistoryKey() { const u = currentUser(); return u ? USER_HIST_PREFIX + u.id : null; }
 let pendingUser = null;
@@ -193,19 +207,20 @@ function hideLogin() { show($("login"), false); }
 function renderLogin() {
   pendingUser = null;
   show($("loginPinWrap"), false);
-  show($("newUserForm"), true);
-  show($("loginUsersWrap"), false);
   setLoginMsg("");
+  const admin = isAdmin();
+  show($("newUserForm"), admin);
   const list = loadUsers();
   const wrap = $("loginUsers");
   wrap.innerHTML = "";
   if (list.length) {
     show($("loginUsersWrap"), true);
+    show($("loginEmpty"), false);
     list.forEach((u) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "login-user";
-      b.innerHTML = '<span class="avatar">' + escapeHtml((u.name || "?").trim().charAt(0)) + '</span><span class="lu-name">' + escapeHtml(u.name) + "</span>" + (u.pin ? '<span class="lu-lock">محمي برمز</span>' : "");
+      b.innerHTML = '<span class="avatar">' + escapeHtml((u.name || "?").trim().charAt(0)) + '</span><span class="lu-name">' + escapeHtml(u.name) + '</span>' + (u.pin ? '<span class="lu-lock">محمي برمز</span>' : "") + '<svg class="lu-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
       b.addEventListener("click", () => {
         if (u.pin) {
           pendingUser = u;
@@ -222,20 +237,82 @@ function renderLogin() {
       });
       wrap.appendChild(b);
     });
+  } else {
+    show($("loginUsersWrap"), false);
+    show($("loginEmpty"), !admin);
   }
 }
-async function createUser() {
-  const name = $("newUserName").value.trim().replace(/\s+/g, " ").slice(0, 40);
-  const pin = $("newUserPin").value.trim();
-  if (!name) { setLoginMsg("اكتب الاسم أولًا", true); return; }
-  if (pin && !/^\d{4,8}$/.test(pin)) { setLoginMsg("رمز الدخول من 4 إلى 8 أرقام، أو اتركه فارغًا", true); return; }
+function renderLoginIfVisible() {
+  const l = $("login");
+  if (l && !l.classList.contains("hidden")) renderLogin();
+}
+/* إنشاء الحسابات من وضع المدير فقط، والرمز مطلوب دائمًا */
+async function addUserCore(name, pin) {
+  name = String(name || "").trim().replace(/\s+/g, " ").slice(0, 40);
+  pin = String(pin || "").trim();
+  if (!name) return { err: "اكتب الاسم أولًا" };
+  if (!/^\d{4,8}$/.test(pin)) return { err: "رمز الدخول مطلوب: من 4 إلى 8 أرقام" };
   const list = loadUsers();
-  if (list.some(u => u.name === name)) { setLoginMsg("الاسم موجود بالفعل. اختره من القائمة أو اكتب اسمًا آخر", true); return; }
-  const u = { id: "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, pin: pin ? await hashPin(pin) : "", t: Date.now() };
+  if (list.some(u => u.name === name)) return { err: "الاسم موجود بالفعل. اختره من القائمة أو اكتب اسمًا آخر" };
+  const salt = newSalt();
+  const u = { id: "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, salt, pin: await hashPin(pin, salt), t: Date.now() };
   list.push(u);
   saveUsers(list);
   migrateOldHistory(u.id);
-  loginUser(u);
+  return { u };
+}
+async function createUser() {
+  if (!isAdmin()) { setLoginMsg("إضافة المستخدمين متاحة من وضع المدير فقط", true); return; }
+  const r = await addUserCore($("newUserName").value, $("newUserPin").value);
+  if (r.err) { setLoginMsg(r.err, true); return; }
+  $("newUserName").value = "";
+  $("newUserPin").value = "";
+  loginUser(r.u);
+}
+async function adminAddUser() {
+  const msg = $("admUserMsg");
+  const r = await addUserCore($("admUserName").value, $("admUserPin").value);
+  if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
+  msg.textContent = "أُضيف " + r.u.name;
+  msg.classList.remove("err");
+  $("admUserName").value = "";
+  $("admUserPin").value = "";
+  renderUsersAdmin();
+  renderLoginIfVisible();
+}
+function deleteUser(id) {
+  const u = loadUsers().find(x => x.id === id);
+  if (!u) return;
+  if (!window.confirm('حذف المستخدم "' + u.name + '"؟ سيُحذف سجله أيضًا من هذا الجهاز.')) return;
+  saveUsers(loadUsers().filter(x => x.id !== id));
+  try { localStorage.removeItem(USER_HIST_PREFIX + id); } catch (e) {}
+  if ((localStorage.getItem(LS.activeUser) || "") === id) logoutUser();
+  renderUsersAdmin();
+  renderLoginIfVisible();
+}
+function renderUsersAdmin() {
+  const wrap = $("usersAdmin");
+  if (!wrap) return;
+  const list = loadUsers();
+  wrap.innerHTML = "";
+  if (!list.length) {
+    wrap.innerHTML = '<p class="muted">لا يوجد مستخدمون على هذا الجهاز بعد.</p>';
+    return;
+  }
+  list.forEach(u => {
+    const row = document.createElement("div");
+    row.className = "ua-row";
+    let ds = "";
+    try { ds = new Date(u.t || Date.now()).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
+    row.innerHTML = '<div class="ua-info"><span class="ua-name">' + escapeHtml(u.name) + '</span><span class="ua-meta">' + (u.pin ? "محمي برمز" : "بدون رمز") + (ds ? " • " + ds : "") + "</span></div>";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost small danger";
+    b.textContent = "حذف";
+    b.addEventListener("click", () => deleteUser(u.id));
+    row.appendChild(b);
+    wrap.appendChild(row);
+  });
 }
 function migrateOldHistory(uid) {
   try {
@@ -251,8 +328,7 @@ async function submitPin() {
   if (!pendingUser) return;
   const v = $("loginPin").value.trim();
   if (!v) return;
-  const h = await hashPin(v);
-  if (h === pendingUser.pin) loginUser(pendingUser);
+  if (await verifyPin(pendingUser, v)) loginUser(pendingUser);
   else setLoginMsg("الرمز غير صحيح، حاول مرة أخرى", true);
 }
 function loginUser(u) {
@@ -280,25 +356,49 @@ function applyUserUI() {
     $("userName").textContent = u.name;
   }
 }
-/* وضع المدير: إعدادات المفتاح والموديل له وحده */
+/* وضع المدير: محمي برمز سري، وبدونه لا وصول للإعدادات أو إدارة المستخدمين */
 function isAdmin() {
   try { return sessionStorage.getItem(LS.adminFlag) === "1"; } catch (e) { return false; }
 }
-function enterAdmin() {
-  try { sessionStorage.setItem(LS.adminFlag, "1"); } catch (e) {}
-  applyAdminUI();
-  if (!keyFor(provider())) show($("settings"), true);
+function openAdminGate() {
+  if (isAdmin()) { applyAdminUI(); show($("settings"), true); return; }
+  show($("adminGate"), true);
+  $("adminCode").value = "";
+  const m = $("adminMsg");
+  if (m) { m.textContent = ""; m.classList.remove("err"); }
+  setTimeout(() => { try { $("adminCode").focus(); } catch (e) {} }, 40);
 }
+function closeAdminGate() { show($("adminGate"), false); }
+async function submitAdminCode() {
+  const v = $("adminCode").value.trim();
+  if (!v) return;
+  const h = await sha256hex("qa::admin::" + v);
+  if (h !== ADMIN_HASH) {
+    const m = $("adminMsg");
+    if (m) { m.textContent = "رمز المسؤول غير صحيح"; m.classList.add("err"); }
+    $("adminCode").value = "";
+    $("adminCode").focus();
+    return;
+  }
+  try { sessionStorage.setItem(LS.adminFlag, "1"); } catch (e) {}
+  closeAdminGate();
+  applyAdminUI();
+  renderLoginIfVisible();
+  show($("settings"), true);
+}
+function enterAdmin() { openAdminGate(); }
 function exitAdmin() {
   try { sessionStorage.removeItem(LS.adminFlag); } catch (e) {}
   show($("settings"), false);
   applyAdminUI();
+  renderLoginIfVisible();
 }
 function applyAdminUI() {
   const on = isAdmin();
   show($("adminPill"), on);
   show($("btnSettings"), on);
   if (!on) show($("settings"), false);
+  else renderUsersAdmin();
 }
 
 /* ===== قراءة الملفات ===== */
@@ -646,7 +746,7 @@ function blocksToHtml(blocks, mode, autoDir) {
     if (b.kind === "li" || b.kind === "oli") {
       if (mode === "print") {
         const mark = b.kind === "oli" ? escapeHtml(b.num || "1") + "." : "•";
-        html += '<div class="pr-li"' + ad + '><span class="pr-b">' + mark + "</span> " + spansHtml(b.spans, mode) + "</div>";
+        html += '<div class="pr-li"' + ad + '><span class="pr-b">' + mark + "</span>" + spansHtml(b.spans, mode) + "</div>";
         continue;
       }
       const type = b.kind === "oli" ? "ol" : "ul";
@@ -655,8 +755,8 @@ function blocksToHtml(blocks, mode, autoDir) {
       continue;
     }
     closeList();
-    if (b.kind === "h2") html += mode === "print" ? '<div class="pr-h4">' + spansHtml(b.spans, mode) + "</div>" : '<h2 class="out-h2">' + spansHtml(b.spans, mode) + "</h2>";
-    else if (b.kind === "h3") html += mode === "print" ? '<div class="pr-h4">' + spansHtml(b.spans, mode) + "</div>" : "<h3>" + spansHtml(b.spans, mode) + "</h3>";
+    if (b.kind === "h2") html += mode === "print" ? '<div class="pr-h4"' + ad + '>' + spansHtml(b.spans, mode) + "</div>" : '<h2 class="out-h2">' + spansHtml(b.spans, mode) + "</h2>";
+    else if (b.kind === "h3") html += mode === "print" ? '<div class="pr-h4"' + ad + '>' + spansHtml(b.spans, mode) + "</div>" : "<h3>" + spansHtml(b.spans, mode) + "</h3>";
     else html += mode === "print" ? '<p class="pr-p"' + ad + ">" + spansHtml(b.spans, mode) + "</p>" : "<p" + ad + ">" + spansHtml(b.spans, mode) + "</p>";
   }
   closeList();
@@ -666,8 +766,9 @@ function blocksToHtml(blocks, mode, autoDir) {
 function blocksToDocxBlocks(blocks) {
   return blocks.map(b => {
     const runs = b.spans.map(s => s.cite ? { t: "[" + (s.ci + 1) + "]", sup: true } : { t: s.t, b: s.b, i: s.i, c: s.code ? "666666" : undefined });
-    if (b.kind === "h2") return { k: "h3", runs: runs.map(r => ({ t: r.t, b: true })) };
-    if (b.kind === "h3") return { k: "h4", runs: runs.map(r => ({ t: r.t, b: true })) };
+    if (b.kind === "h2") return { k: "h2", runs: runs.map(r => ({ t: r.t, b: true })) };
+    if (b.kind === "h3") return { k: "h3", runs: runs.map(r => ({ t: r.t, b: true })) };
+    if (b.kind === "h4") return { k: "h4", runs: runs.map(r => ({ t: r.t, b: true })) };
     if (b.kind === "li") return { k: "li", runs: [{ t: "• ", b: true }].concat(runs) };
     if (b.kind === "oli") return { k: "li", runs: [{ t: (b.num || "1") + ". ", b: true }].concat(runs) };
     if (b.kind === "hr") return { k: "sep" };
@@ -1180,25 +1281,25 @@ function buildPrintRoot(which) {
 
   const parts = [];
   if (which === "full" || which === "summary") {
-    parts.push('<div class="pr-h3">الملخص</div>' + sectionHtml(sumCtx, sumBlocks) + refsHtml);
+    parts.push('<div class="pr-h3" dir="auto">الملخص</div>' + sectionHtml(sumCtx, sumBlocks) + refsHtml);
   }
   if ((which === "full" || which === "summaryEn") && enBlocks.length) {
-    const enHead = '<div class="pr-h3">English Summary</div>' + sectionHtml(enCtx, enBlocks, true);
+    const enHead = '<div class="pr-h3" dir="auto">English Summary</div>' + sectionHtml(enCtx, enBlocks, true);
     parts.push(which === "full" ? '<div class="pr-newpage"></div>' + enHead : enHead);
   }
   if ((which === "full" || which === "translation") && trBlocks.length) {
-    const trHead = '<div class="pr-h3">' + c.trHead + "</div>" + sectionHtml(trCtx, trBlocks, true);
+    const trHead = '<div class="pr-h3" dir="auto">' + c.trHead + "</div>" + sectionHtml(trCtx, trBlocks, true);
     parts.push(which === "full" ? '<div class="pr-newpage"></div>' + trHead : trHead);
   }
 
   root.classList.toggle("pr-ltr", c.lang === "en");
   root.innerHTML =
     '<div class="pr-brand">' + escapeHtml(c.brandLine) + "</div>" +
+    '<div class="pr-tag">' + escapeHtml(c.brandSub) + "</div>" +
     '<div class="pr-rule"></div>' +
     '<div class="pr-title">' + escapeHtml(c.title) + "</div>" +
     '<div class="pr-meta">' + escapeHtml(c.meta) + "</div>" +
-    parts.join("") +
-    '<div class="pr-foot">' + escapeHtml(c.foot) + "</div>";
+    parts.join("");
 }
 
 /* ===== العرض ===== */
@@ -1321,6 +1422,7 @@ function buildDocxBytes(which) {
   const c = chromeFor(which);
   const blocks = [
     { k: "brand", runs: [{ t: c.brandLine }] },
+    { k: "tag", runs: [{ t: c.brandSub }] },
     { k: "title", runs: [{ t: c.title }] },
     { k: "meta", runs: [{ t: c.meta }] }
   ];
@@ -1345,8 +1447,7 @@ function buildDocxBytes(which) {
     blocks.push({ k: "h2", runs: [{ t: c.trHead }] });
     for (const b of trBlocks) blocks.push(b);
   }
-  blocks.push({ k: "foot", runs: [{ t: c.foot }] });
-  return QADocx.build({ blocks, lang: c.lang });
+  return QADocx.build({ blocks, lang: c.lang, title: c.title });
 }
 
 function anyContent() { return !!(last.summary || last.summaryEn || last.translation); }
@@ -1370,10 +1471,25 @@ function exportWord(which) {
   }
 }
 
+/* تذييل صفحات PDF: صناديق هوامش @page مدعومة في Chrome وEdge الحديثين */
+function setPageFootStyle(lang) {
+  let el = document.getElementById("pageFootStyle");
+  if (!el) {
+    el = document.createElement("style");
+    el.id = "pageFootStyle";
+    document.head.appendChild(el);
+  }
+  if (lang === "en") {
+    el.textContent = '@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-family: "Times New Roman", "Tinos", serif; font-size: 9pt; color: #605C56; } }';
+  } else {
+    el.textContent = '@page { @bottom-center { content: "صفحة " counter(page) " من " counter(pages); font-family: "Noto Naskh Arabic", serif; font-size: 9pt; color: #605C56; } }';
+  }
+}
 function printExport(which) {
   which = which || "full";
   if (!anyContent()) { setStatus("لا يوجد ملخص للطباعة بعد", true); return; }
   buildPrintRoot(which);
+  setPageFootStyle(chromeFor(which).lang);
   const oldTitle = document.title;
   document.title = (DL_NAMES[which] || DL_NAMES.full).print + "-" + isoDate();
   const restore = () => {
@@ -1453,7 +1569,11 @@ async function run() {
 
 /* ===== ربط الأحداث ===== */
 function init() {
-  $("btnSettings").addEventListener("click", () => show($("settings"), $("settings").classList.contains("hidden")));
+  $("btnSettings").addEventListener("click", () => {
+    const willShow = $("settings").classList.contains("hidden");
+    show($("settings"), willShow);
+    if (willShow) renderUsersAdmin();
+  });
   $("providerSel").value = provider();
   $("fallbackChk").checked = localStorage.getItem(LS.fallback) !== "0";
   syncSettingsToProvider();
@@ -1569,6 +1689,13 @@ function init() {
   $("loginPin").addEventListener("keydown", (e) => { if (e.key === "Enter") submitPin(); });
   $("btnPinBack").addEventListener("click", renderLogin);
   $("btnExitAdmin").addEventListener("click", exitAdmin);
+  $("btnAdminEntry").addEventListener("click", openAdminGate);
+  $("btnAdminOk").addEventListener("click", submitAdminCode);
+  $("btnAdminCancel").addEventListener("click", closeAdminGate);
+  $("adminCode").addEventListener("keydown", (e) => { if (e.key === "Enter") submitAdminCode(); });
+  $("btnAdmAddUser").addEventListener("click", adminAddUser);
+  $("admUserName").addEventListener("keydown", (e) => { if (e.key === "Enter") adminAddUser(); });
+  $("admUserPin").addEventListener("keydown", (e) => { if (e.key === "Enter") adminAddUser(); });
 
   /* وضع المدير: رابط #admin أو خمس نقرات متتالية على اسم الموقع في الأسفل */
   if ((location.hash || "").toLowerCase() === "#admin") enterAdmin();
