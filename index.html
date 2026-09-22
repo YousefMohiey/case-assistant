@@ -9,6 +9,10 @@
 <meta name="description" content="منصة خاصة لإدارة القضايا والوثائق القانونية: تلخيص وترجمة الوثائق بشكل منظم.">
 <title>محمد محيي | محامي ومستشار قانوني</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="محمد محيي">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -120,17 +124,18 @@
 <main>
   <section class="card">
     <h2>نص القضية</h2>
-    <p class="muted card-hint">الصق نص القضية أو ارفع ملفًا (PDF أو صورة سكانر أو نص)، وبعدها اضغط "لخّص وترجم".</p>
+    <p class="muted card-hint">الصق نص القضية أو ارفع ملفًا (PDF أو Word أو صورة سكانر أو نص)، وبعدها اضغط "لخّص وترجم".</p>
     <textarea id="caseText" placeholder="الصق نص القضية أو الوثيقة هنا..." rows="9"></textarea>
-    <div class="row between wrap">
-      <div class="row wrap">
-        <label class="filebtn">ارفع ملف (PDF أو صورة أو نص)
-          <input id="fileInput" type="file" accept=".pdf,.txt,image/png,image/jpeg,image/webp" hidden>
-        </label>
-        <span id="fileInfo" class="muted"></span>
-      </div>
+    <div class="attach-row">
+      <label class="filebtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>ارفع ملف
+        <input id="fileInput" type="file" accept=".pdf,.txt,.docx,image/png,image/jpeg,image/webp" hidden>
+      </label>
+      <label class="filebtn cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>التقط صورة
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+      </label>
       <button id="btnClear" class="ghost small" type="button">تفريغ</button>
     </div>
+    <p id="fileInfo" class="muted fileinfo"></p>
     <button id="btnRun" class="primary big" type="button">لخّص وترجم</button>
     <div id="runStatus" class="muted status" role="status" aria-live="polite"></div>
   </section>

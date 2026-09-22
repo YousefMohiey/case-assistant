@@ -18,7 +18,8 @@ const LS = {
   history: "qa_history",
   users: "qa_users",
   activeUser: "qa_active_user",
-  adminFlag: "qa_admin"
+  adminFlag: "qa_admin",
+  draft: "qa_draft"
 };
 
 const BRAND = {
@@ -1273,6 +1274,166 @@ function jumpToCite(btn) {
   showBubble(btn, c.text, "النص الأصلي غير متاح في هذه الجلسة. نص الاقتباس:");
 }
 
+/* ===== ملفات Word: استخراج النص داخل المتصفح (بدون مكتبات) ===== */
+async function inflateRaw(u8) {
+  const ds = new DecompressionStream("deflate-raw");
+  const stream = new Blob([u8]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/* قراءة جزء واحد من أرشيف ZIP الخاص بـdocx اعتمادًا على الفهرس المركزي (وليس الترويسات المحلية) */
+function unzipDocxPart(bytes, wanted) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eo = -1;
+  const lo = Math.max(0, bytes.length - 66000);
+  for (let i = bytes.length - 22; i >= lo; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eo = i; break; }
+  }
+  if (eo < 0) return Promise.resolve(null);
+  const count = dv.getUint16(eo + 10, true);
+  let p = dv.getUint32(eo + 16, true);
+  const dec = new TextDecoder("utf-8");
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const cmtLen = dv.getUint16(p + 32, true);
+    const lho = dv.getUint32(p + 42, true);
+    const name = dec.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    if (name === wanted) {
+      const lnLen = dv.getUint16(lho + 26, true);
+      const leLen = dv.getUint16(lho + 28, true);
+      const start = lho + 30 + lnLen + leLen;
+      const data = bytes.subarray(start, start + csize);
+      if (method === 0) return Promise.resolve(dec.decode(data));
+      if (method !== 8) return Promise.resolve(null);
+      return inflateRaw(data).then((u) => dec.decode(u));
+    }
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return Promise.resolve(null);
+}
+
+/* تحويل XML الوثيقة إلى نص: كل فقرة سطر، والخلايا مسافات */
+function docxXmlToText(xml) {
+  let t = String(xml || "");
+  t = t.replace(/<w:instrText[\s\S]*?<\/w:instrText>/g, "");
+  t = t.replace(/<w:tab[^>]*\/>/g, " ");
+  t = t.replace(/<w:br[^>]*\/>/g, "\n");
+  t = t.replace(/<\/w:p>/g, "\n");
+  t = t.replace(/<\/w:tc>/g, "  ");
+  t = t.replace(/<\/w:tr>/g, "\n");
+  t = t.replace(/<[^>]+>/g, "");
+  t = t.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+  t = t.replace(/&#(\d+);/g, (m, d) => String.fromCharCode(parseInt(d, 10)));
+  t = t.replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  t = t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return t;
+}
+
+async function docxExtract(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const xml = await unzipDocxPart(bytes, "word/document.xml");
+  if (!xml) throw new Error("تعذر قراءة ملف Word");
+  return docxXmlToText(xml);
+}
+
+/* إرفاق ملف واحد من أي مصدر: رفع، كاميرا، لصق، سحب وإفلات */
+async function attachFile(f) {
+  if (!f) return;
+  attached = null;
+  const name = f.name || "ملف";
+  if (f.size > MAX_FILE_MB * 1024 * 1024) {
+    $("fileInfo").textContent = "الملف أكبر من " + MAX_FILE_MB + " ميجا";
+    return;
+  }
+  try {
+    if (f.type === "text/plain" || /\.txt$/i.test(name)) {
+      attached = { mime: "text/plain", text: await f.text(), name };
+    } else if (/\.docx$/i.test(name) || f.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      const text = await docxExtract(f);
+      if (!text || text.length < 10) { $("fileInfo").textContent = "تعذر استخراج نص من ملف Word. تأكد أنه ملف docx حديث."; return; }
+      attached = { mime: "text/plain", text, name, fromDocx: true };
+    } else if (f.type === "application/pdf" || /\.pdf$/i.test(name)) {
+      const b64 = await toB64(f);
+      attached = { mime: "application/pdf", data: b64, name, url: b64ToBlobUrl(b64, "application/pdf") };
+    } else if (/^image\//.test(f.type)) {
+      const b64 = await toB64(f);
+      attached = { mime: f.type, data: b64, dataUrl: await toDataUrl(f), name };
+    } else {
+      $("fileInfo").textContent = "نوع الملف غير مدعوم. المدعوم: PDF أو Word أو صورة أو ملف نصي";
+      return;
+    }
+  } catch (e) {
+    $("fileInfo").textContent = "تعذر قراءة الملف. جرّب ملفًا آخر.";
+    return;
+  }
+  $("fileInfo").textContent = name + " (" + (f.size / 1048576).toFixed(1) + " ميجا" + (attached.fromDocx ? ", تم استخراج النص" : "") + ")";
+}
+
+/* ===== التحقق الآلي من الاقتباسات ===== */
+async function verifyCites() {
+  const host = $("summaryOut").closest(".card") || $("summaryOut").parentElement;
+  let line = host.querySelector(".checkline");
+  const chips = Array.from(document.querySelectorAll("#summaryOut button.cite"));
+  if (!chips.length || !currentCites.length) { if (line) line.remove(); return; }
+  const cs = currentSource || { kind: "none" };
+  let verdicts = null;
+  let reason = "";
+  try {
+    if (cs.kind === "text" && cs.text) {
+      verdicts = currentCites.map((q) => !!findQuote(cs.text, q.text));
+    } else if (cs.kind === "pdf" && cs.url) {
+      const idx = cs._pdfIndex || (await buildPdfIndex());
+      if (cs !== currentSource) return;
+      if (idx && idx.hasText) verdicts = currentCites.map((q) => !!findQuoteInIndex(idx, q.text));
+      else reason = "الملف يبدو ممسوحًا ضوئيًا بدون نص قابل للبحث.";
+    } else if (cs.kind === "image") {
+      reason = "الملف صورة، والتحقق هنا يدوي بمقارنة العين.";
+    } else if (cs.kind === "pdf") {
+      reason = "الملف الأصلي غير محفوظ في هذه الجلسة.";
+    } else {
+      reason = "لا يوجد نص أصلي محفوظ لهذه الجلسة.";
+    }
+  } catch (e) {
+    reason = "تعذر تحليل النص الأصلي.";
+  }
+  if (cs !== currentSource) return;
+  chips.forEach((ch) => {
+    const i = +ch.getAttribute("data-i");
+    if (verdicts && verdicts[i]) {
+      ch.classList.add("cite-v");
+      ch.title = "تم العثور على الاقتباس حرفيًا في النص الأصلي. اضغط للانتقال إليه.";
+    } else if (verdicts) {
+      ch.classList.add("cite-w");
+      ch.title = "لم نعثر على هذا الاقتباس حرفيًا في النص المتاح. اضغط للمراجعة اليدوية.";
+    }
+  });
+  if (!line) {
+    line = document.createElement("p");
+    line.className = "muted checkline";
+    host.appendChild(line);
+  }
+  if (verdicts) {
+    const ok = verdicts.filter(Boolean).length;
+    const total = verdicts.length;
+    if (ok === total) line.textContent = "التحقق الآلي: جميع الاقتباسات (" + total + ") موجودة حرفيًا في النص الأصلي.";
+    else {
+      const bad = verdicts.map((v, i) => (!v ? String(i + 1) : null)).filter(Boolean).join("، ");
+      line.textContent = "التحقق الآلي: " + ok + " من " + total + " اقتباسات موجودة حرفيًا. راجع المصدر " + bad + " يدويًا.";
+    }
+    line.classList.toggle("warn", ok !== total);
+  } else {
+    line.textContent = "التحقق الآلي غير متاح: " + reason;
+  }
+}
+
+function verifyCitesSafe() {
+  setTimeout(() => { verifyCites().catch(() => {}); }, 80);
+}
+
 /* ===== عرض النتائج ===== */
 function renderSource(src) {
   const card = $("sourceCard");
@@ -1413,6 +1574,7 @@ function showResult(parsed, source) {
   updateCardHeads();
   show($("citeHint"), ctx.quotes.length > 0);
   renderSource(currentSource);
+  verifyCitesSafe();
   refreshDownloadRows();
   buildPrintRoot("full");
   show($("output"), true);
@@ -1711,39 +1873,74 @@ function init() {
   $("btnRefreshModels").addEventListener("click", () => refreshModels(false));
   $("modelSel").addEventListener("change", () => saveModelFor(provider(), $("modelSel").value));
 
-  $("fileInput").addEventListener("change", async () => {
-    const f = $("fileInput").files[0];
+  const onPicked = async (id) => {
+    const inp = $(id);
+    const f = inp.files && inp.files[0];
     if (!f) return;
-    attached = null;
-    if (f.size > MAX_FILE_MB * 1024 * 1024) {
-      $("fileInfo").textContent = "الملف أكبر من " + MAX_FILE_MB + " ميجا";
-      return;
-    }
-    const name = f.name || "";
-    if (f.type === "text/plain" || /\.txt$/i.test(name)) {
-      attached = { mime: "text/plain", text: await f.text(), name };
-    } else if (f.type === "application/pdf" || /\.pdf$/i.test(name)) {
-      const b64 = await toB64(f);
-      attached = { mime: "application/pdf", data: b64, name, url: b64ToBlobUrl(b64, "application/pdf") };
-    } else if (/^image\//.test(f.type)) {
-      const b64 = await toB64(f);
-      attached = { mime: f.type, data: b64, dataUrl: await toDataUrl(f), name };
-    } else {
-      $("fileInfo").textContent = "نوع الملف غير مدعوم. المدعوم: PDF أو صورة أو ملف نصي";
-      return;
-    }
-    $("fileInfo").textContent = name + " (" + (f.size / 1048576).toFixed(1) + " ميجا)";
-  });
+    await attachFile(f);
+    try { inp.value = ""; } catch (e) {}
+  };
+  $("fileInput").addEventListener("change", () => onPicked("fileInput"));
+  $("cameraInput").addEventListener("change", () => onPicked("cameraInput"));
 
   $("btnClear").addEventListener("click", () => {
     $("caseText").value = "";
     attached = null;
     $("fileInput").value = "";
+    $("cameraInput").value = "";
     $("fileInfo").textContent = "";
+    try { localStorage.removeItem(LS.draft); } catch (e) {}
     setStatus("");
   });
 
   $("btnRun").addEventListener("click", run);
+
+  /* اختصار Ctrl+Enter للتشغيل */
+  $("caseText").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); run(); }
+  });
+
+  /* لصق صورة من الحافظة مباشرة */
+  $("caseText").addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type && /^image\//.test(it.type)) {
+        const f = it.getAsFile();
+        if (f) { e.preventDefault(); attachFile(f).catch(() => {}); }
+        return;
+      }
+    }
+  });
+
+  /* سحب ملف وإفلاته على بطاقة النص */
+  const inputCard = $("caseText").closest(".card");
+  if (inputCard) {
+    inputCard.addEventListener("dragover", (e) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf("Files") >= 0) { e.preventDefault(); inputCard.classList.add("drop"); }
+    });
+    inputCard.addEventListener("dragleave", () => inputCard.classList.remove("drop"));
+    inputCard.addEventListener("drop", (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      e.preventDefault();
+      inputCard.classList.remove("drop");
+      attachFile(f).catch(() => {});
+    });
+  }
+
+  /* حفظ مسودة النص تلقائيًا حتى لا تضيع عند التحديث */
+  let draftT = null;
+  $("caseText").addEventListener("input", () => {
+    clearTimeout(draftT);
+    draftT = setTimeout(() => {
+      try {
+        const v = $("caseText").value;
+        if (v.trim()) localStorage.setItem(LS.draft, v);
+        else localStorage.removeItem(LS.draft);
+      } catch (e) {}
+    }, 400);
+  });
 
   document.querySelectorAll("[data-copy]").forEach((b) => {
     b.addEventListener("click", async () => {
@@ -1833,8 +2030,10 @@ function init() {
   if (currentUser()) hideLogin(); else showLogin();
   applyUserUI();
   renderHistory();
+  try { const d = localStorage.getItem(LS.draft); if (d) $("caseText").value = d; } catch (e) {}
   buildPrintRoot("full");
   if (keyFor(provider())) refreshModels(true);
+  try { if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

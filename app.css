@@ -287,7 +287,9 @@ button:focus-visible, .filebtn:focus-within, summary:focus-visible, .linkbtn:foc
 .linkbtn:hover { color: var(--accent); }
 
 .filebtn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: var(--surface);
   border: 1px dashed var(--faint);
   border-radius: var(--r-ctl);
@@ -789,3 +791,18 @@ details ol { margin: 8px 0 0; padding-right: 20px; }
   .cite { padding: 2px 9px; }
   button.ghost.small { padding: 8px 14px; }
 }
+
+/* ===== إضافات: التحقق من الاقتباسات، الإرفاق، التثبيت ===== */
+.filebtn svg { width: 15px; height: 15px; }
+.filebtn.cam { display: none; }
+@media (pointer: coarse) { .filebtn.cam { display: inline-flex; } }
+.card.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+
+button.cite.cite-v { background: #e3efe6; color: #1f6a43; }
+button.cite.cite-w { background: #fbeedd; color: #8a4b10; box-shadow: inset 0 0 0 1px #e2b57c; }
+.checkline { margin: 10px 0 0; font-size: 13.5px; }
+.checkline.warn { color: var(--gold-2); }
+
+.attach-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.fileinfo { margin: 8px 0 0; font-size: 13.5px; }
+.fileinfo:empty { display: none; }
