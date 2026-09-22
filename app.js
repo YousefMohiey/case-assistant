@@ -435,15 +435,21 @@ function applyUserUI() {
 function isAdmin() {
   try { return sessionStorage.getItem(LS.adminFlag) === "1"; } catch (e) { return false; }
 }
+let gatePushed = false;
 function openAdminGate() {
   if (isAdmin()) { applyAdminUI(); show($("settings"), true); return; }
   show($("adminGate"), true);
+  if (!gatePushed) { try { history.pushState({ qaGate: 1 }, ""); gatePushed = true; } catch (e) {} }
   $("adminCode").value = "";
   const m = $("adminMsg");
   if (m) { m.textContent = ""; m.classList.remove("err"); }
   setTimeout(() => { try { $("adminCode").focus(); } catch (e) {} }, 40);
 }
-function closeAdminGate() { show($("adminGate"), false); }
+function closeAdminGate(fromBack) {
+  show($("adminGate"), false);
+  if (fromBack === true) { gatePushed = false; return; }
+  if (gatePushed) { gatePushed = false; try { history.back(); } catch (e) {} }
+}
 async function submitAdminCode() {
   const v = $("adminCode").value.trim();
   if (!v) return;
@@ -1048,18 +1054,24 @@ function pageForQuote(quoteText, hintPg) {
 /* ===== عارض الملفات (نافذة كبيرة) ===== */
 const viewer = { open: false, kind: "pdf", doc: null, page: 1, pages: 0, zoom: 0, base: 0, hl: null, token: 0 };
 
+/* نوافذنا تضيف مدخلًا في تاريخ المتصفح، فيقفلها زر الرجوع بدل أن يخرج من الموقع */
+let vwPushed = false;
 function openViewerShell() {
   viewer.open = true;
   show($("viewer"), true);
   document.body.classList.add("modal-open");
+  if (!vwPushed) { try { history.pushState({ qaViewer: 1 }, ""); vwPushed = true; } catch (e) {} }
   setTimeout(() => { try { $("vwClose").focus(); } catch (e) {} }, 30);
 }
-function closeViewer() {
+function closeViewer(fromBack) {
+  if (!viewer.open) return;
   viewer.open = false;
   viewer.token++;
   show($("viewer"), false);
   document.body.classList.remove("modal-open");
   $("vwStage").innerHTML = "";
+  if (fromBack === true) { vwPushed = false; return; }
+  if (vwPushed) { vwPushed = false; try { history.back(); } catch (e) {} }
 }
 function setVwQuote(c) {
   const q = $("vwQuote");
@@ -1987,6 +1999,13 @@ function init() {
     if (e.key === "Escape") closeViewer();
     else if (e.key === "ArrowLeft") viewerGo(1);
     else if (e.key === "ArrowRight") viewerGo(-1);
+  });
+  /* زر الرجوع في المتصفح أو الهاتف يقفل النافذة المفتوحة فقط، ولا يخرج من الموقع */
+  window.addEventListener("popstate", () => {
+    if (viewer.open) { closeViewer(true); return; }
+    if (!$("adminGate").classList.contains("hidden")) { closeAdminGate(true); return; }
+    vwPushed = false;
+    gatePushed = false;
   });
 
   $("btnClearHistory").addEventListener("click", () => {
