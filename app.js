@@ -20,11 +20,12 @@ const LS = {
   accounts: "qa_accounts",
   activeUser: "qa_active_user",
   adminFlag: "qa_admin",
+  adminCode: "qa_admin_code",
   draft: "qa_draft"
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22g";
+const APP_VER = "2026-09-22h";
 
 const BRAND = {
   name: "محمد محي",
@@ -34,6 +35,7 @@ const BRAND = {
 };
 /* وضع المدير محمي برمز سري: البصمة فقط موجودة هنا، والرمز نفسه لا يُخزَّن في أي مكان. */
 const ADMIN_HASH = "SERVER_SIDE";
+const QA_API = "https://quotacards.duckdns.org/qa-api"; /* سيرفر الحسابات المركزي */
 
 const $ = (id) => document.getElementById(id);
 
@@ -279,6 +281,89 @@ async function verifyUserPass(u, v) {
   const h = await hashPassword(v, u.salt);
   return h === u.h;
 }
+/* ===== سيرفر الحسابات المركزي: كل الأجهزة تشترك في نفس الحسابات ===== */
+async function apiPost(action, body, adminCodeValue) {
+  const headers = { "Content-Type": "application/json" };
+  if (adminCodeValue) headers["X-Admin"] = adminCodeValue;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const res = await fetch(QA_API, { method: "POST", headers, body: JSON.stringify(Object.assign({ a: action }, body || {})), signal: ctl.signal, cache: "no-store" });
+    let j = null; try { j = await res.json(); } catch (e) {}
+    return { status: res.status, json: j || {} };
+  } finally { clearTimeout(t); }
+}
+async function apiGet(action, adminCodeValue) {
+  const headers = {};
+  if (adminCodeValue) headers["X-Admin"] = adminCodeValue;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const res = await fetch(QA_API + "?a=" + encodeURIComponent(action), { method: "GET", headers, signal: ctl.signal, cache: "no-store" });
+    let j = null; try { j = await res.json(); } catch (e) {}
+    return { status: res.status, json: j || {} };
+  } finally { clearTimeout(t); }
+}
+/* يحدّث نسخة الجهاز من حساب موجود على السيرفر (تبقى للدخول دون اتصال) */
+function upsertCacheAccount(acc) {
+  if (!acc || !acc.name || !acc.salt || !acc.hash) return null;
+  const list = loadAccounts();
+  const key = nameKey(acc.name);
+  const old = list.find(x => nameKey(x.name) === key);
+  if (old) {
+    old.salt = acc.salt;
+    old.h = acc.hash;
+    if (acc.id) old.sid = acc.id;
+    if (acc.last_login) old.l = acc.last_login;
+    saveAccounts(list);
+    return old;
+  }
+  const rec = { id: acc.id || ("u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)), sid: acc.id || "", name: normName(acc.name), salt: acc.salt, h: acc.hash, t: acc.created || Date.now(), l: acc.last_login || 0 };
+  list.push(rec);
+  saveAccounts(list);
+  return rec;
+}
+function adminCodeVariants(v) {
+  v = String(v || "").trim();
+  const out = [v, v.toUpperCase()];
+  out.push(v.toUpperCase().replace(/[\u2010\u2011\u2012\u2013\u2014\u2212_]/g, "-").replace(/\s+/g, ""));
+  const al = v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/^MHADMIN[A-Z0-9]{6}$/.test(al)) out.push("MH-ADMIN-" + al.slice(7));
+  return out;
+}
+function adminCode() { try { return sessionStorage.getItem(LS.adminCode) || ""; } catch (e) { return ""; } }
+/* إعدادات السيرفر (المفتاح/الموديل) تصل لكل الأجهزة بعد الدخول */
+function applyServerConfig(cfg) {
+  if (!cfg) return;
+  if (typeof cfg.provider === "string" && cfg.provider) localStorage.setItem(LS.provider, cfg.provider);
+  if (typeof cfg.keyGemini === "string" && cfg.keyGemini) localStorage.setItem(LS.keyGemini, cfg.keyGemini);
+  if (typeof cfg.keyOR === "string" && cfg.keyOR) localStorage.setItem(LS.keyOR, cfg.keyOR);
+  if (typeof cfg.modelGemini === "string" && cfg.modelGemini) localStorage.setItem(LS.modelGemini, cfg.modelGemini);
+  if (typeof cfg.modelOR === "string" && cfg.modelOR) localStorage.setItem(LS.modelOR, cfg.modelOR);
+  try { if (!$("settings").classList.contains("hidden")) { $("providerSel").value = provider(); syncSettingsToProvider(); } } catch (e) {}
+}
+async function pushConfigToServer() {
+  if (!isAdmin() || !adminCode()) return null;
+  try {
+    const r = await apiPost("admin.config", { provider: provider(), keyGemini: localStorage.getItem(LS.keyGemini) || "", keyOR: localStorage.getItem(LS.keyOR) || "", modelGemini: localStorage.getItem(LS.modelGemini) || "", modelOR: localStorage.getItem(LS.modelOR) || "" }, adminCode());
+    return !!(r.status === 200 && r.json.ok);
+  } catch (e) { return false; }
+}
+/* مصالحة الإعدادات عند دخول المدير: يرفع المفتاح المحلي إن كان السيرفر فاضيًا، أو يجلب من السيرفر إن كان الجهاز فاضيًا */
+async function syncConfigAsAdmin() {
+  if (!isAdmin() || !adminCode()) return;
+  try {
+    const r = await apiGet("admin.config", adminCode());
+    if (r.status !== 200 || !r.json.ok || !r.json.config) return;
+    const sc = r.json.config;
+    const localG = (localStorage.getItem(LS.keyGemini) || "").trim();
+    const localO = (localStorage.getItem(LS.keyOR) || "").trim();
+    const serverEmpty = !((sc.keyGemini || "").trim() || (sc.keyOR || "").trim());
+    const localHas = !!(localG || localO);
+    if (serverEmpty && localHas) { await pushConfigToServer(); }
+    else if (!serverEmpty && !localHas) { applyServerConfig(sc); }
+  } catch (e) {}
+}
 function userHistoryKey() { const u = currentUser(); return u ? USER_HIST_PREFIX + u.id : null; }
 function setPassVisible(inpId, btnId, on) {
   const inp = $(inpId), btn = $(btnId);
@@ -331,10 +416,24 @@ async function adminAddUser() {
   if (btn && btn.disabled) return;
   if (btn) btn.disabled = true;
   try {
-    const r = await addAccountCore($("admUserName").value, $("admUserPass").value);
-    if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
-    msg.textContent = "أُنشئ حساب " + r.u.name;
-    msg.classList.remove("err");
+    const name = normName($("admUserName").value).slice(0, 40);
+    const pass = String($("admUserPass").value || "");
+    if (name.length < 2) { msg.textContent = "اسم المستخدم قصير جدًا: حرفان على الأقل"; msg.classList.add("err"); return; }
+    if (pass.length < 6) { msg.textContent = "كلمة المرور قصيرة: 6 أحرف على الأقل"; msg.classList.add("err"); return; }
+    let r = null;
+    try { r = await apiPost("admin.accounts", { name, pass }, adminCode()); } catch (e) {}
+    if (!r) { msg.textContent = "تعذّر الاتصال بالسيرفر. تأكد من الإنترنت وجرّب تاني."; msg.classList.add("err"); return; }
+    if (r.status === 200 && r.json.ok && r.json.account) {
+      upsertCacheAccount(r.json.account);
+      msg.textContent = "أُنشئ حساب " + r.json.account.name + ": شغال على كل الأجهزة.";
+      msg.classList.remove("err");
+    } else if (r.json && r.json.err === "exists") {
+      msg.textContent = "اسم المستخدم هذا مستخدم بالفعل، اختر اسمًا آخر"; msg.classList.add("err"); return;
+    } else if (r.json && r.json.err === "badadmin") {
+      msg.textContent = "انتهت جلسة وضع المدير: اخرج وادخل الرمز من جديد"; msg.classList.add("err"); return;
+    } else {
+      msg.textContent = "تعذّر إنشاء الحساب. جرّب تاني."; msg.classList.add("err"); return;
+    }
     $("admUserName").value = "";
     $("admUserPass").value = "";
     setPassVisible("admUserPass", "btnAdmEye", false);
@@ -342,39 +441,75 @@ async function adminAddUser() {
     renderLoginIfVisible();
   } finally { if (btn) btn.disabled = false; }
 }
-function deleteUser(id) {
-  const u = loadAccounts().find(x => x.id === id);
-  if (!u) return;
-  if (!window.confirm('حذف حساب "' + u.name + '"؟ سيُحذف سجله أيضًا من هذا الجهاز.')) return;
-  saveAccounts(loadAccounts().filter(x => x.id !== id));
-  try { localStorage.removeItem(USER_HIST_PREFIX + id); } catch (e) {}
-  if ((localStorage.getItem(LS.activeUser) || "") === id) logoutUser();
+async function deleteAccount(rec) {
+  if (!rec) return;
+  const scope = rec.sid ? "من السيرفر (لن يستطيع الدخول من أي جهاز)" : "من هذا الجهاز فقط";
+  if (!window.confirm('حذف حساب "' + rec.name + '" ' + scope + '؟ سيُحذف سجله من هذا الجهاز أيضًا.')) return;
+  if (rec.sid) {
+    let r = null;
+    try { r = await apiPost("admin.delete", { id: rec.sid }, adminCode()); } catch (e) {}
+    if (!r || !(r.status === 200 && r.json.ok)) {
+      const m = $("admUserMsg");
+      if (m) { m.textContent = "تعذّر الحذف من السيرفر: " + ((r && r.json && r.json.err === "notfound") ? "الحساب غير موجود على السيرفر" : "لا يوجد اتصال"); m.classList.add("err"); }
+      return;
+    }
+  }
+  const list = loadAccounts();
+  const victim = list.find(x => (rec.sid && x.sid === rec.sid) || nameKey(x.name) === nameKey(rec.name));
+  saveAccounts(list.filter(x => !victim || x.id !== victim.id));
+  if (victim) {
+    try { localStorage.removeItem(USER_HIST_PREFIX + victim.id); } catch (e) {}
+    if ((localStorage.getItem(LS.activeUser) || "") === victim.id) logoutUser();
+  }
   renderUsersAdmin();
   renderLoginIfVisible();
 }
-function renderUsersAdmin() {
+async function renderUsersAdmin() {
   const wrap = $("usersAdmin");
   if (!wrap) return;
-  const list = loadAccounts();
-  wrap.innerHTML = "";
-  if (!list.length) {
-    wrap.innerHTML = '<p class="muted">لا توجد حسابات على هذا الجهاز بعد.</p>';
-    return;
+  const local = loadAccounts();
+  let server = null;
+  try {
+    const r = await apiGet("admin.accounts", adminCode());
+    if (r.status === 200 && r.json.ok && Array.isArray(r.json.accounts)) server = r.json.accounts;
+  } catch (e) {}
+  const rows = [];
+  const used = {};
+  if (server) {
+    server.forEach(a => {
+      const lrec = local.find(x => (x.sid && x.sid === a.id) || nameKey(x.name) === nameKey(a.name)) || null;
+      if (lrec) used[lrec.id] = 1;
+      rows.push({ name: a.name, created: a.created, last: a.last_login, sid: a.id, localRec: lrec });
+    });
   }
-  list.forEach(u => {
+  local.forEach(u => { if (!used[u.id]) rows.push({ name: u.name, created: u.t, last: u.l, sid: u.sid || "", localRec: u }); });
+  wrap.innerHTML = "";
+  if (!server) {
+    const n = document.createElement("p");
+    n.className = "muted";
+    n.textContent = "تعذّر الوصول للسيرفر: هذه النسخة المحفوظة على هذا الجهاز.";
+    wrap.appendChild(n);
+  }
+  if (!rows.length) {
+    const e = document.createElement("p");
+    e.className = "muted";
+    e.textContent = "لا توجد حسابات بعد. أنشئ أول حساب من الأسفل.";
+    wrap.appendChild(e);
+  }
+  rows.forEach(rw => {
     const row = document.createElement("div");
     row.className = "ua-row";
     let ds = "", dl = "";
-    try { ds = new Date(u.t || Date.now()).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
-    try { if (u.l) dl = new Date(u.l).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
+    try { ds = new Date(rw.created || Date.now()).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
+    try { if (rw.last) dl = new Date(rw.last).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {}
     const info = document.createElement("div");
     info.className = "ua-info";
     const nm = document.createElement("span");
     nm.className = "ua-name";
-    nm.textContent = u.name;
+    nm.textContent = rw.name;
     const mt = document.createElement("span");
     mt.className = "ua-meta";
-    mt.textContent = (ds ? "أُنشئ في " + ds : "") + (dl ? (ds ? " • " : "") + "آخر دخول " + dl : "");
+    mt.textContent = (ds ? "أُنشئ في " + ds : "") + (dl ? (ds ? " • " : "") + "آخر دخول " + dl : "") + (rw.sid ? " • على السيرفر" : " • على هذا الجهاز فقط");
     info.appendChild(nm);
     info.appendChild(mt);
     const acts = document.createElement("div");
@@ -383,32 +518,71 @@ function renderUsersAdmin() {
     b1.type = "button";
     b1.className = "ghost small";
     b1.textContent = "كلمة المرور";
-    b1.addEventListener("click", () => openResetEditor(row, u));
+    b1.addEventListener("click", () => openResetEditor(row, rw));
     const b2 = document.createElement("button");
     b2.type = "button";
     b2.className = "ghost small danger";
     b2.textContent = "حذف";
-    b2.addEventListener("click", () => deleteUser(u.id));
+    b2.addEventListener("click", () => deleteAccount(rw));
     acts.appendChild(b1);
     acts.appendChild(b2);
     row.appendChild(info);
     row.appendChild(acts);
     wrap.appendChild(row);
   });
+  const toImport = local.filter(u => !u.sid);
+  if (server && toImport.length) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost small";
+    b.textContent = "نقل " + toImport.length + " حساب محلي إلى السيرفر";
+    b.addEventListener("click", () => importLocalAccounts(toImport));
+    wrap.appendChild(b);
+  }
 }
-async function resetUserPassword(id, pass) {
+async function importLocalAccounts(items) {
+  const m = $("admUserMsg");
+  const payload = items.map(u => ({ name: u.name, salt: u.salt, h: u.h, t: u.t || Date.now() }));
+  let r = null;
+  try { r = await apiPost("admin.import", { accounts: payload }, adminCode()); } catch (e) {}
+  if (!r || !(r.status === 200 && r.json.ok)) {
+    if (m) { m.textContent = "تعذّر النقل: " + ((r && r.json && r.json.err) || "لا يوجد اتصال"); m.classList.add("err"); }
+    return;
+  }
+  const map = {};
+  (r.json.imported || []).forEach(im => { map[nameKey(im.name)] = im.id; });
   const list = loadAccounts();
-  const u = list.find(x => x.id === id);
-  if (!u) return { err: "الحساب غير موجود" };
+  list.forEach(u => { const sid = map[nameKey(u.name)]; if (sid && !u.sid) u.sid = sid; });
+  saveAccounts(list);
+  if (m) {
+    m.textContent = "تم نقل " + (r.json.imported || []).length + " حساب إلى السيرفر" + ((r.json.skipped || 0) ? " (اتخطى " + r.json.skipped + ")" : "");
+    m.classList.remove("err");
+  }
+  renderUsersAdmin();
+}
+async function resetAccountPass(rec, pass) {
+  if (!rec) return { err: "الحساب غير موجود" };
   pass = String(pass || "");
   if (pass.length < 6) return { err: "كلمة المرور قصيرة: 6 أحرف على الأقل" };
+  if (rec.sid) {
+    let r = null;
+    try { r = await apiPost("admin.pass", { id: rec.sid, pass }, adminCode()); } catch (e) {}
+    if (!r || !(r.status === 200 && r.json.ok)) return { err: "تعذّر تحديث كلمة المرور على السيرفر. جرّب تاني." };
+    const list = loadAccounts();
+    const u = list.find(x => (x.sid && x.sid === rec.sid) || nameKey(x.name) === nameKey(rec.name));
+    if (u) { u.salt = r.json.account.salt; u.h = r.json.account.hash; saveAccounts(list); }
+    return { ok: true };
+  }
+  const list = loadAccounts();
+  const u = list.find(x => nameKey(x.name) === nameKey(rec.name));
+  if (!u) return { err: "الحساب غير موجود" };
   const salt = newSalt();
   u.salt = salt;
   u.h = await hashPassword(pass, salt);
   saveAccounts(list);
   return { ok: true };
 }
-function openResetEditor(row, u) {
+function openResetEditor(row, rec) {
   const prev = row.querySelector(".ua-reset");
   if (prev) { prev.remove(); return; }
   const box = document.createElement("div");
@@ -431,11 +605,11 @@ function openResetEditor(row, u) {
   msg.className = "muted";
   no.addEventListener("click", () => box.remove());
   ok.addEventListener("click", async () => {
-    const r = await resetUserPassword(u.id, inp.value);
+    const r = await resetAccountPass(rec, inp.value);
     if (r.err) { msg.textContent = r.err; msg.classList.add("err"); return; }
     box.remove();
     const m = $("admUserMsg");
-    if (m) { m.textContent = "تم تحديث كلمة مرور " + u.name; m.classList.remove("err"); }
+    if (m) { m.textContent = "تم تحديث كلمة مرور " + rec.name + (rec.sid ? "" : " (على هذا الجهاز فقط)"); m.classList.remove("err"); }
   });
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); });
   box.appendChild(inp);
@@ -477,19 +651,56 @@ async function submitLogin() {
   const name = normName($("loginUser").value);
   const pass = $("loginPass").value;
   if (!name || !pass) { setLoginMsg("اكتب اسم المستخدم وكلمة المرور", true); return; }
-  const u = loadAccounts().find(x => nameKey(x.name) === nameKey(name));
-  if (!u || !(await verifyUserPass(u, pass))) {
-    setLoginMsg("اسم المستخدم أو كلمة المرور غير صحيحة", true);
-    $("loginPass").value = "";
-    try { $("loginPass").focus(); } catch (e) {}
-    return;
+  const localRec = loadAccounts().find(x => nameKey(x.name) === nameKey(name)) || null;
+  let rec = null;
+  let online = false;
+  let notice = "";
+  setLoginMsg("جارٍ التحقق...");
+  try {
+    const r = await apiPost("login", { name, pass });
+    online = true;
+    if (r.status === 200 && r.json.ok && r.json.user) {
+      rec = upsertCacheAccount(r.json.user);
+    } else if (r.json && r.json.err === "unknown" && localRec && !localRec.sid && (await verifyUserPass(localRec, pass))) {
+      /* حساب قديم على هذا الجهاز ولم يُنقل للسيرفر بعد: لا نحبس المستخدم */
+      rec = localRec;
+      notice = "دخلت بحساب محفوظ على هذا الجهاز. من وضع المدير انقله للسيرفر ليعمل على كل الأجهزة.";
+    } else if (r.json && r.json.err === "unknown" && localRec && localRec.sid) {
+      /* حساب محذوف من السيرفر */
+      saveAccounts(loadAccounts().filter(x => x.id !== localRec.id));
+      setLoginMsg("اسم المستخدم أو كلمة المرور غير صحيحة", true);
+      $("loginPass").value = "";
+      return;
+    } else {
+      setLoginMsg("اسم المستخدم أو كلمة المرور غير صحيحة", true);
+      $("loginPass").value = "";
+      try { $("loginPass").focus(); } catch (e) {}
+      return;
+    }
+  } catch (e) {
+    online = false;
+    if (localRec && (await verifyUserPass(localRec, pass))) {
+      rec = localRec;
+      notice = "وضع دون اتصال: دخلت بالنسخة المحفوظة على هذا الجهاز.";
+    } else {
+      setLoginMsg(localRec ? "تعذّر الاتصال بالسيرفر، وكلمة المرور غير مطابقة للنسخة المحفوظة على هذا الجهاز." : "تعذّر الاتصال بالسيرفر. تأكد من الإنترنت وجرّب تاني.", true);
+      return;
+    }
+  }
+  if (!rec) { setLoginMsg("اسم المستخدم أو كلمة المرور غير صحيحة", true); return; }
+  if (online) {
+    try {
+      const cfg = await apiPost("config", { name, pass });
+      if (cfg.status === 200 && cfg.json.ok && cfg.json.config) applyServerConfig(cfg.json.config);
+    } catch (e) {}
   }
   try {
     const list = loadAccounts();
-    const rec = list.find(x => x.id === u.id);
-    if (rec) { rec.l = Date.now(); saveAccounts(list); }
+    const rr = list.find(x => x.id === rec.id);
+    if (rr) { rr.l = Date.now(); saveAccounts(list); }
   } catch (e) {}
-  loginUser(u);
+  loginUser(rec);
+  if (notice) setStatus(notice);
 }
 function loginUser(u) {
   localStorage.setItem(LS.activeUser, u.id);
@@ -535,25 +746,31 @@ function closeAdminGate(fromBack) {
   if (gatePushed) { gatePushed = false; try { history.back(); } catch (e) {} }
 }
 async function submitAdminCode() {
-  const v = $("adminCode").value.trim();
-  if (!v) return;
-  const h = await sha256hex("qa::admin::" + v);
-  if (h !== ADMIN_HASH) {
+  const raw = $("adminCode").value.trim();
+  if (!raw) return;
+  let used = "";
+  const variants = adminCodeVariants(raw);
+  for (let i = 0; i < variants.length; i++) {
+    const h = await sha256hex("qa::admin::" + variants[i]);
+    if (h === ADMIN_HASH) { used = variants[i]; break; }
+  }
+  if (!used) {
     const m = $("adminMsg");
     if (m) { m.textContent = "رمز المسؤول غير صحيح"; m.classList.add("err"); }
     $("adminCode").value = "";
     $("adminCode").focus();
     return;
   }
-  try { sessionStorage.setItem(LS.adminFlag, "1"); } catch (e) {}
+  try { sessionStorage.setItem(LS.adminFlag, "1"); sessionStorage.setItem(LS.adminCode, used); } catch (e) {}
   closeAdminGate();
   applyAdminUI();
   renderLoginIfVisible();
   show($("settings"), true);
+  syncConfigAsAdmin();
 }
 function enterAdmin() { openAdminGate(); }
 function exitAdmin() {
-  try { sessionStorage.removeItem(LS.adminFlag); } catch (e) {}
+  try { sessionStorage.removeItem(LS.adminFlag); sessionStorage.removeItem(LS.adminCode); } catch (e) {}
   show($("settings"), false);
   applyAdminUI();
   renderLoginIfVisible();
@@ -622,7 +839,15 @@ async function saveKey() {
   localStorage.setItem(p === "gemini" ? LS.keyGemini : LS.keyOR, k);
   $("saveStatus").textContent = "تم الحفظ على هذا الجهاز";
   $("saveStatus").classList.remove("err");
-  refreshModels(false);
+  const pushP = (isAdmin() && adminCode()) ? pushConfigToServer() : Promise.resolve(null);
+  await refreshModels(false);
+  const pushRes = await pushP;
+  if (pushRes === false) {
+    $("saveStatus").textContent = "تم الحفظ على هذا الجهاز فقط: تعذّر الوصول للسيرفر";
+    $("saveStatus").classList.add("err");
+  } else if (pushRes === true && !$("saveStatus").classList.contains("err")) {
+    $("saveStatus").textContent = "تم الحفظ على السيرفر: المفتاح هيشتغل على كل الأجهزة بعد الدخول";
+  }
 }
 
 function cmpGeminiScore(id) {
@@ -2018,7 +2243,7 @@ function init() {
   $("btnSettings").addEventListener("click", () => {
     const willShow = $("settings").classList.contains("hidden");
     show($("settings"), willShow);
-    if (willShow) renderUsersAdmin();
+    if (willShow) { renderUsersAdmin(); syncConfigAsAdmin(); }
   });
   $("providerSel").value = provider();
   $("fallbackChk").checked = localStorage.getItem(LS.fallback) !== "0";
@@ -2027,6 +2252,7 @@ function init() {
   $("providerSel").addEventListener("change", () => {
     localStorage.setItem(LS.provider, $("providerSel").value);
     syncSettingsToProvider();
+    pushConfigToServer();
   });
   $("fallbackChk").addEventListener("change", () => {
     localStorage.setItem(LS.fallback, $("fallbackChk").checked ? "1" : "0");
@@ -2037,7 +2263,7 @@ function init() {
   });
   $("btnSave").addEventListener("click", saveKey);
   $("btnRefreshModels").addEventListener("click", () => refreshModels(false));
-  $("modelSel").addEventListener("change", () => saveModelFor(provider(), $("modelSel").value));
+  $("modelSel").addEventListener("change", () => { saveModelFor(provider(), $("modelSel").value); pushConfigToServer(); });
 
   const onPicked = async (id) => {
     const inp = $(id);
