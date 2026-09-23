@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22h";
+const APP_VER = "2026-09-22i";
 
 const BRAND = {
   name: "محمد محي",
@@ -475,12 +475,17 @@ async function renderUsersAdmin() {
   } catch (e) {}
   const rows = [];
   const used = {};
+  let healed = false;
   if (server) {
     server.forEach(a => {
       const lrec = local.find(x => (x.sid && x.sid === a.id) || nameKey(x.name) === nameKey(a.name)) || null;
-      if (lrec) used[lrec.id] = 1;
+      if (lrec) {
+        used[lrec.id] = 1;
+        if (!lrec.sid) { lrec.sid = a.id; healed = true; }
+      }
       rows.push({ name: a.name, created: a.created, last: a.last_login, sid: a.id, localRec: lrec });
     });
+    if (healed) saveAccounts(local);
   }
   local.forEach(u => { if (!used[u.id]) rows.push({ name: u.name, created: u.t, last: u.l, sid: u.sid || "", localRec: u }); });
   wrap.innerHTML = "";
@@ -532,6 +537,12 @@ async function renderUsersAdmin() {
   });
   const toImport = local.filter(u => !u.sid);
   if (server && toImport.length) {
+    /* نقل تلقائي: الحسابات المحلية القديمة ترفع نفسها للسيرفر أول ما المدير يفتح اللوحة */
+    const autoKey = toImport.map(u => nameKey(u.name)).join("|");
+    if (renderUsersAdmin._auto !== autoKey) {
+      renderUsersAdmin._auto = autoKey;
+      importLocalAccounts(toImport, true);
+    }
     const b = document.createElement("button");
     b.type = "button";
     b.className = "ghost small";
@@ -540,13 +551,13 @@ async function renderUsersAdmin() {
     wrap.appendChild(b);
   }
 }
-async function importLocalAccounts(items) {
+async function importLocalAccounts(items, auto) {
   const m = $("admUserMsg");
   const payload = items.map(u => ({ name: u.name, salt: u.salt, h: u.h, t: u.t || Date.now() }));
   let r = null;
   try { r = await apiPost("admin.import", { accounts: payload }, adminCode()); } catch (e) {}
   if (!r || !(r.status === 200 && r.json.ok)) {
-    if (m) { m.textContent = "تعذّر النقل: " + ((r && r.json && r.json.err) || "لا يوجد اتصال"); m.classList.add("err"); }
+    if (m && !auto) { m.textContent = "تعذّر النقل: " + ((r && r.json && r.json.err) || "لا يوجد اتصال"); m.classList.add("err"); }
     return;
   }
   const map = {};
@@ -554,8 +565,11 @@ async function importLocalAccounts(items) {
   const list = loadAccounts();
   list.forEach(u => { const sid = map[nameKey(u.name)]; if (sid && !u.sid) u.sid = sid; });
   saveAccounts(list);
-  if (m) {
-    m.textContent = "تم نقل " + (r.json.imported || []).length + " حساب إلى السيرفر" + ((r.json.skipped || 0) ? " (اتخطى " + r.json.skipped + ")" : "");
+  const nImp = (r.json.imported || []).length;
+  if (m && (!auto || nImp > 0)) {
+    m.textContent = auto
+      ? "نُقلت " + nImp + " من الحسابات المحلية إلى السيرفر تلقائيًا: شغالة على كل الأجهزة."
+      : "تم نقل " + nImp + " حساب إلى السيرفر" + ((r.json.skipped || 0) ? " (اتخطى " + r.json.skipped + ")" : "");
     m.classList.remove("err");
   }
   renderUsersAdmin();
