@@ -2162,6 +2162,7 @@ function printExport(which) {
 const LAW_SOURCES_HINT = "منصة التشريعات الإماراتية uaelegislation.gov.ae، ووزارة العدل moj.gov.ae، وبوابة تشريعات دبي dlp.dubai.gov.ae، وبوابة حكومة الإمارات u.ae، والمواقع الرسمية للمحاكم";
 function lawPrompt(q, fromCase) {
   return "أنت مساعد بحث قانوني لمحام ومستشار قانوني يعمل في دولة الإمارات العربية المتحدة.\n" +
+    "مهمتك الأساسية: نفذ بحثًا في الإنترنت الآن، قبل كتابة أي إجابة، ولا تعتمد على معلوماتك السابقة.\n" +
     (fromCase
       ? "هذه وقائع قضية (أو ملخصها). ابحث في الإنترنت عن النصوص القانونية والأحكام القضائية الإماراتية المنطبقة عليها:\n«" + q + "»\n"
       : "ابحث في الإنترنت عن:\n«" + q + "»\n") +
@@ -2185,6 +2186,33 @@ function setLawStatus(msg, isErr) {
   if (!el) return;
   el.textContent = msg || "";
   el.classList.toggle("err", !!isErr);
+}
+async function lawCallGemini(key, promptText) {
+  const res = await fetch(`${GEMINI_BASE}/models/${modelFor("gemini")}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: promptText }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+    })
+  });
+  let data = null; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    if (res.status === 429) throw new Error("وصلت للحد المجاني للبحث حاليًا. استنى شوية وجرب تاني.");
+    throw new ApiError(apiErrorMessage(res.status, data, false), isRetryable(res.status));
+  }
+  const cand = data && data.candidates && data.candidates[0];
+  const text = (((cand && cand.content && cand.content.parts) || []).map((x) => x.text || "").join("")).trim();
+  const gm = (cand && cand.groundingMetadata) || {};
+  const srcs = [], seen = {};
+  (gm.groundingChunks || []).forEach((c) => {
+    const w = c && c.web;
+    if (!w || !w.uri || seen[w.uri]) return;
+    seen[w.uri] = 1;
+    srcs.push({ t: String(w.title || "").trim(), u: w.uri });
+  });
+  return { text, srcs };
 }
 async function runLegalSearch(fromCase) {
   if (lawBusy) return;
@@ -2210,33 +2238,18 @@ async function runLegalSearch(fromCase) {
   b1.textContent = "جاري البحث...";
   setLawStatus("أبحث الآن في الويب عن نصوص وأحكام مطابقة...");
   try {
-    const res = await fetch(`${GEMINI_BASE}/models/${modelFor("gemini")}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: lawPrompt(q, fromCase) }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
-      })
-    });
-    let data = null; try { data = await res.json(); } catch (e) {}
-    if (!res.ok) {
-      if (res.status === 429) throw new Error("وصلت للحد المجاني للبحث حاليًا. استنى شوية وجرب تاني.");
-      throw new ApiError(apiErrorMessage(res.status, data, false), isRetryable(res.status));
+    const first = await lawCallGemini(key, lawPrompt(q, fromCase));
+    let text = first.text, srcs = first.srcs;
+    if (!srcs.length && text) {
+      setLawStatus("النموذج أجاب من غير تنفيذ بحث، جاري إعادة المحاولة...");
+      try {
+        const retry = await lawCallGemini(key, lawPrompt(q, fromCase) + "\n\nملاحظة مهمة: في المحاولة السابقة لم تنفذ بحثًا في الإنترنت. نفذ الآن بحثًا فعليًا في الويب، ثم اكتب الإجابة معتمدة على نتائج البحث فقط.");
+        if (retry.srcs.length) { text = retry.text || text; srcs = retry.srcs; }
+      } catch (e2) {}
     }
-    const cand = data && data.candidates && data.candidates[0];
-    const text = (((cand && cand.content && cand.content.parts) || []).map((x) => x.text || "").join("")).trim();
-    const gm = (cand && cand.groundingMetadata) || {};
-    const srcs = [], seen = {};
-    (gm.groundingChunks || []).forEach((c) => {
-      const w = c && c.web;
-      if (!w || !w.uri || seen[w.uri]) return;
-      seen[w.uri] = 1;
-      srcs.push({ t: String(w.title || "").trim(), u: w.uri });
-    });
     lastLaw = { text, srcs, q };
     renderLawResults();
-    setLawStatus(srcs.length ? "" : "البحث خلص من غير مصادر مباشرة ظاهرة. جرب صياغة أوضح لو النتيجة ناقصة.");
+    setLawStatus(srcs.length ? "" : "النتيجة جاهزة، لكن من غير مصادر مباشرة هذه المرة. جرب إعادة البحث بصياغة أوضح.");
   } catch (e) {
     setLawStatus(e && e.message ? e.message : "تعذر البحث. حاول مرة أخرى.", true);
   } finally {
