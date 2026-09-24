@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
 
@@ -154,6 +154,13 @@
       <button id="btnLawFromCase" class="ghost small" type="button">ابحث لقضيتي</button>
       <button id="btnLawCopy" class="ghost small hidden" type="button">نسخ النتائج</button>
     </div>
+    <p class="muted law-chips-h">تخصيص البحث في أحكام محكمة معينة (اختياري):</p>
+    <div class="law-chips" id="lawCourts" role="group" aria-label="نطاق الأحكام">
+      <button class="chip" type="button" aria-pressed="false" data-court="محكمة التمييز بدبي">تمييز دبي</button>
+      <button class="chip" type="button" aria-pressed="false" data-court="محكمة التمييز أبوظبي">تمييز أبوظبي</button>
+      <button class="chip" type="button" aria-pressed="false" data-court="محكمة تمييز رأس الخيمة">تمييز رأس الخيمة</button>
+      <button class="chip" type="button" aria-pressed="false" data-court="المحكمة الاتحادية العليا">الاتحادية العليا</button>
+    </div>
     <div id="lawStatus" class="muted status" role="status" aria-live="polite"></div>
     <div id="lawResults" class="hidden">
       <div id="lawOut" class="out"></div>
@@ -161,7 +168,8 @@
         <p class="muted law-src-h">المصادر التي رجع منها البحث:</p>
         <div id="lawSrcs" class="law-srcs"></div>
       </div>
-      <p class="muted law-note">النتائج من بحث مباشر في الويب وليست من ذاكرة النموذج. راجع النص الرسمي في المصادر قبل الاستناد إليه، ويظل الرجوع إلى <a href="https://uaelegislation.gov.ae" target="_blank" rel="noopener">منصة التشريعات الإماراتية</a> و<a href="https://www.moj.gov.ae" target="_blank" rel="noopener">وزارة العدل</a> هو الأصل.</p>
+      <p class="muted law-note">النتائج من بحث مباشر في الويب وليست من ذاكرة النموذج. راجع النص الرسمي في المصادر قبل الاستناد إليه.</p>
+      <p class="muted law-note">بوابات رسمية للأحكام والتشريعات: <a href="https://www.dc.gov.ae/PublicServices/LatestVerdicts.aspx" target="_blank" rel="noopener">محاكم دبي</a> · <a href="https://www.adjd.gov.ae/sites/eServices/AR/pages/judgments.aspx" target="_blank" rel="noopener">دائرة القضاء أبوظبي</a> · <a href="https://grpportal.rak.ae/irj/portal/judgement_publications/anonymous?guest_user=anon01_en" target="_blank" rel="noopener">محاكم رأس الخيمة</a> · <a href="https://www.moj.gov.ae/ar/about-moj/union-supreme-court/e-services/latest-court-interpretations.aspx" target="_blank" rel="noopener">المحكمة الاتحادية العليا</a> · <a href="https://uaelegislation.gov.ae" target="_blank" rel="noopener">منصة التشريعات</a></p>
     </div>
   </section>
 
@@ -345,8 +353,8 @@
   </div>
 </div>
 
-<script src="docx.js?v=15"></script>
-<script src="pdfgen.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="docx.js?v=16"></script>
+<script src="pdfgen.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

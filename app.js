@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22q";
+const APP_VER = "2026-09-22r";
 
 const BRAND = {
   name: "محمد محي",
@@ -2159,20 +2159,24 @@ function printExport(which) {
 
 /* ===== تشغيل ===== */
 /* ===== البحث القانوني: قوانين وأحكام دولة الإمارات (بحث ويب مباشر) ===== */
-function lawPrompt(q, fromCase) {
+function lawPrompt(q, fromCase, courts) {
   return (fromCase
       ? "ابحث في الإنترنت الآن عن النصوص القانونية والأحكام القضائية الإماراتية المنطبقة على هذه القضية:\n«" + q + "»\n"
       : "ابحث في الإنترنت الآن عن:\n«" + q + "»\n") +
+    (courts && courts.length ? "ركز البحث على أحكام: «" + courts.join("» و«") + "».\n" : "") +
     "\nثم اكتب النتيجة بالعربية بهذا الترتيب:\n" +
     "### أولًا: النصوص القانونية\n" +
     "لكل نص: اسم القانون كاملًا ورقم المادة، وسطر يشرح صلته.\n" +
     "### ثانيًا: الأحكام القضائية\n" +
-    "لكل حكم: المحكمة ورقم الحكم أو سنته، وسطر عن مبدئه.\n" +
+    "لكل حكم: المحكمة والدائرة ورقم الطعن أو سنته، وسطر عن مبدئه، ويفضل أحكام محكمة التمييز بدبي وأبوظبي ورأس الخيمة والمحكمة الاتحادية العليا ودوائرها.\n" +
     "### ثالثًا: ملاحظة عملية\n" +
     "سطران موجزان.\n" +
     "اعتمد على نتائج البحث فقط. ممنوع اختراع أرقام مواد أو أحكام. " +
-    "فضل المصادر الرسمية الإماراتية (uaelegislation.gov.ae و moj.gov.ae و dlp.dubai.gov.ae). " +
+    "فضل المصادر الرسمية: وزارة العدل moj.gov.ae، دائرة القضاء أبوظبي adjd.gov.ae، محاكم دبي dc.gov.ae، محاكم رأس الخيمة courts.rak.ae، منصة التشريعات uaelegislation.gov.ae. " +
     "اذكر اسم الجهة لكل نص. ابدأ بالبحث قبل الكتابة، ولا تكتب مقدمات.";
+}
+function lawCourts() {
+  return Array.from(document.querySelectorAll("#lawCourts .chip.on")).map((b) => b.getAttribute("data-court")).filter(Boolean);
 }
 let lawBusy = false;
 function setLawStatus(msg, isErr) {
@@ -2232,12 +2236,13 @@ async function runLegalSearch(fromCase) {
   b1.textContent = "جاري البحث...";
   setLawStatus("أبحث الآن في الويب عن نصوص وأحكام مطابقة...");
   try {
-    const first = await lawCallGemini(key, lawPrompt(q, fromCase));
+    const courts = lawCourts();
+    const first = await lawCallGemini(key, lawPrompt(q, fromCase, courts));
     let text = first.text, srcs = first.srcs;
     if (!srcs.length && text) {
       setLawStatus("النموذج أجاب من غير تنفيذ بحث، جاري إعادة المحاولة...");
       try {
-        const retry = await lawCallGemini(key, lawPrompt(q, fromCase) + "\n\nملاحظة مهمة: في المحاولة السابقة لم تنفذ بحثًا في الإنترنت. نفذ الآن بحثًا فعليًا في الويب، ثم اكتب الإجابة معتمدة على نتائج البحث فقط.");
+        const retry = await lawCallGemini(key, lawPrompt(q, fromCase, courts) + "\n\nملاحظة مهمة: في المحاولة السابقة لم تنفذ بحثًا في الإنترنت. نفذ الآن بحثًا فعليًا في الويب، ثم اكتب الإجابة معتمدة على نتائج البحث فقط.");
         if (retry.srcs.length) { text = retry.text || text; srcs = retry.srcs; }
       } catch (e2) {}
     }
@@ -2434,6 +2439,12 @@ function init() {
   $("btnLawCopy").addEventListener("click", (e) => copyLawResults(e.currentTarget));
   $("lawQuery").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); runLegalSearch(false); }
+  });
+  document.querySelectorAll("#lawCourts .chip").forEach((b) => {
+    b.addEventListener("click", () => {
+      b.classList.toggle("on");
+      b.setAttribute("aria-pressed", b.classList.contains("on") ? "true" : "false");
+    });
   });
 
   /* اختصار Ctrl+Enter للتشغيل */
