@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22p";
+const APP_VER = "2026-09-22q";
 
 const BRAND = {
   name: "محمد محي",
@@ -2173,6 +2173,13 @@ function lawPrompt(q, fromCase) {
     "اعتمد على نتائج البحث فقط. ممنوع اختراع أرقام مواد أو أحكام. " +
     "فضل المصادر الرسمية الإماراتية (uaelegislation.gov.ae و moj.gov.ae و dlp.dubai.gov.ae). " +
     "اذكر اسم الجهة لكل نص. ابدأ بالبحث قبل الكتابة، ولا تكتب مقدمات.";
+}
+let lawBusy = false;
+function setLawStatus(msg, isErr) {
+  const el = $("lawStatus");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("err", !!isErr);
 }
 async function lawCallGemini(key, promptText) {
   const res = await fetch(`${GEMINI_BASE}/models/${modelFor("gemini")}:generateContent`, {
