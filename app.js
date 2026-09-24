@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22i";
+const APP_VER = "2026-09-22j";
 
 const BRAND = {
   name: "محمد محي",
@@ -324,7 +324,9 @@ function upsertCacheAccount(acc) {
   return rec;
 }
 function adminCodeVariants(v) {
-  v = String(v || "").trim();
+  v = String(v || "").trim()
+    .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 48))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x06F0 + 48));
   const out = [v, v.toUpperCase()];
   out.push(v.toUpperCase().replace(/[\u2010\u2011\u2012\u2013\u2014\u2212_]/g, "-").replace(/\s+/g, ""));
   const al = v.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -746,7 +748,7 @@ function isAdmin() {
 }
 let gatePushed = false;
 function openAdminGate() {
-  if (isAdmin()) { applyAdminUI(); show($("settings"), true); return; }
+  if (isAdmin()) { if (!currentUser()) show($("login"), false); applyAdminUI(); show($("settings"), true); return; }
   show($("adminGate"), true);
   if (!gatePushed) { try { history.pushState({ qaGate: 1 }, ""); gatePushed = true; } catch (e) {} }
   $("adminCode").value = "";
@@ -778,6 +780,7 @@ async function submitAdminCode() {
   try { sessionStorage.setItem(LS.adminFlag, "1"); sessionStorage.setItem(LS.adminCode, used); } catch (e) {}
   closeAdminGate();
   applyAdminUI();
+  if (!currentUser()) show($("login"), false);
   renderLoginIfVisible();
   show($("settings"), true);
   syncConfigAsAdmin();
@@ -787,7 +790,8 @@ function exitAdmin() {
   try { sessionStorage.removeItem(LS.adminFlag); sessionStorage.removeItem(LS.adminCode); } catch (e) {}
   show($("settings"), false);
   applyAdminUI();
-  renderLoginIfVisible();
+  if (!currentUser()) showLogin();
+  else renderLoginIfVisible();
 }
 function applyAdminUI() {
   const on = isAdmin();
