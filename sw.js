@@ -1,5 +1,5 @@
 /* عامل الخدمة: تثبيت الموقع كتطبيق + عمل أساسي دون اتصال (الشبكة أولًا) */
-const CACHE = "qa-shell-v13";
+const CACHE = "qa-shell-v14";
 const SHELL = ["./", "./index.html", "./app.css?v=10", "./app.js?v=10", "./docx.js?v=10", "./pdfgen.js?v=10", "./manifest.json", "./version.json", "./favicon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png", "./vendor/pdf.min.mjs"];
 
 self.addEventListener("install", (e) => {

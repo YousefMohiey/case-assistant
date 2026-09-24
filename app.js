@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22l";
+const APP_VER = "2026-09-22o";
 
 const BRAND = {
   name: "محمد محي",
