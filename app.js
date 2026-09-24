@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22j";
+const APP_VER = "2026-09-22k";
 
 const BRAND = {
   name: "محمد محي",
@@ -327,10 +327,31 @@ function adminCodeVariants(v) {
   v = String(v || "").trim()
     .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 48))
     .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x06F0 + 48));
-  const out = [v, v.toUpperCase()];
-  out.push(v.toUpperCase().replace(/[\u2010\u2011\u2012\u2013\u2014\u2212_]/g, "-").replace(/\s+/g, ""));
-  const al = v.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (/^MHADMIN[A-Z0-9]{6}$/.test(al)) out.push("MH-ADMIN-" + al.slice(7));
+  const out = [];
+  const push = (x) => { if (x && out.indexOf(x) === -1) out.push(x); };
+  const vn = v.replace(/[\u2010\u2011\u2012\u2013\u2014\u2212_]/g, "-").replace(/\s+/g, "");
+  const bases = [v];
+  if (vn !== v) bases.push(vn);
+  bases.forEach((base) => {
+    push(base);
+    push(base.toUpperCase());
+    /* توليفات حالة الأحرف: كيبوردات الموبايل قد تغيّر حالة الحروف */
+    const letters = [];
+    for (let i = 0; i < base.length; i++) { if (/[a-zA-Z]/.test(base[i])) letters.push(i); }
+    if (letters.length > 0 && letters.length <= 8) {
+      const total = 1 << letters.length;
+      for (let m = 0; m < total; m++) {
+        const chars = base.split("");
+        for (let b = 0; b < letters.length; b++) {
+          const c = chars[letters[b]];
+          chars[letters[b]] = ((m >> b) & 1) ? c.toUpperCase() : c.toLowerCase();
+        }
+        push(chars.join(""));
+      }
+    }
+  });
+  const al = vn.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/^MHADMIN[A-Z0-9]{6}$/.test(al)) push("MH-ADMIN-" + al.slice(7));
   return out;
 }
 function adminCode() { try { return sessionStorage.getItem(LS.adminCode) || ""; } catch (e) { return ""; } }
