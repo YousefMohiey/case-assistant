@@ -25,7 +25,7 @@ const LS = {
 };
 
 /* رقم الإصدار: يُقارن مع version.json لتنبيه المستخدم إذا وُجد تحديث جديد */
-const APP_VER = "2026-09-22k";
+const APP_VER = "2026-09-22l";
 
 const BRAND = {
   name: "محمد محي",
@@ -34,8 +34,7 @@ const BRAND = {
   tagEn: "Attorney at Law and Legal Counsel"
 };
 /* وضع المدير محمي برمز سري: البصمة فقط موجودة هنا، والرمز نفسه لا يُخزَّن في أي مكان. */
-const ADMIN_HASH = "SERVER_SIDE";
-const QA_API = "https://quotacards.duckdns.org/qa-api"; /* سيرفر الحسابات المركزي */
+const QA_API = "https://quotacards.duckdns.org/qa-api"; /* سيرفر الحسابات المركزي: التحقق من رمز المسؤول يتم هناك */
 
 const $ = (id) => document.getElementById(id);
 
@@ -322,37 +321,6 @@ function upsertCacheAccount(acc) {
   list.push(rec);
   saveAccounts(list);
   return rec;
-}
-function adminCodeVariants(v) {
-  v = String(v || "").trim()
-    .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 48))
-    .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x06F0 + 48));
-  const out = [];
-  const push = (x) => { if (x && out.indexOf(x) === -1) out.push(x); };
-  const vn = v.replace(/[\u2010\u2011\u2012\u2013\u2014\u2212_]/g, "-").replace(/\s+/g, "");
-  const bases = [v];
-  if (vn !== v) bases.push(vn);
-  bases.forEach((base) => {
-    push(base);
-    push(base.toUpperCase());
-    /* توليفات حالة الأحرف: كيبوردات الموبايل قد تغيّر حالة الحروف */
-    const letters = [];
-    for (let i = 0; i < base.length; i++) { if (/[a-zA-Z]/.test(base[i])) letters.push(i); }
-    if (letters.length > 0 && letters.length <= 8) {
-      const total = 1 << letters.length;
-      for (let m = 0; m < total; m++) {
-        const chars = base.split("");
-        for (let b = 0; b < letters.length; b++) {
-          const c = chars[letters[b]];
-          chars[letters[b]] = ((m >> b) & 1) ? c.toUpperCase() : c.toLowerCase();
-        }
-        push(chars.join(""));
-      }
-    }
-  });
-  const al = vn.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (/^MHADMIN[A-Z0-9]{6}$/.test(al)) push("MH-ADMIN-" + al.slice(7));
-  return out;
 }
 function adminCode() { try { return sessionStorage.getItem(LS.adminCode) || ""; } catch (e) { return ""; } }
 /* إعدادات السيرفر (المفتاح/الموديل) تصل لكل الأجهزة بعد الدخول */
@@ -785,19 +753,21 @@ function closeAdminGate(fromBack) {
 async function submitAdminCode() {
   const raw = $("adminCode").value.trim();
   if (!raw) return;
-  let used = "";
-  const variants = adminCodeVariants(raw);
-  for (let i = 0; i < variants.length; i++) {
-    const h = await sha256hex("qa::admin::" + variants[i]);
-    if (h === ADMIN_HASH) { used = variants[i]; break; }
+  let r = null;
+  try { r = await apiPost("admin.check", { code: raw }); } catch (e) {}
+  if (!r) {
+    const m = $("adminMsg");
+    if (m) { m.textContent = "تعذّر الاتصال بالسيرفر: دخول وضع المدير يحتاج إنترنت"; m.classList.add("err"); }
+    return;
   }
-  if (!used) {
+  if (!(r.status === 200 && r.json.ok)) {
     const m = $("adminMsg");
     if (m) { m.textContent = "رمز المسؤول غير صحيح"; m.classList.add("err"); }
     $("adminCode").value = "";
     $("adminCode").focus();
     return;
   }
+  const used = r.json.code || raw;
   try { sessionStorage.setItem(LS.adminFlag, "1"); sessionStorage.setItem(LS.adminCode, used); } catch (e) {}
   closeAdminGate();
   applyAdminUI();
