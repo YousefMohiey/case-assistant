@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=10">
+<link rel="stylesheet" href="app.css?v=11">
 </head>
 <body>
 
@@ -145,7 +145,27 @@
     <div id="runStatus" class="muted status" role="status" aria-live="polite"></div>
   </section>
 
-  <section id="output" class="hidden">
+    <section class="card" id="lawCard">
+    <h2>البحث القانوني</h2>
+    <p class="muted card-hint">ابحث في قوانين وأحكام دولة الإمارات عن أي موضوع، أو اطلب بحثا تلقائيا عن النصوص والأحكام المرتبطة بقضيتك.</p>
+    <input id="lawQuery" type="text" placeholder="مثال: التعويض عن الضرر، أو الطعن بالنقض" dir="auto" autocomplete="off">
+    <div class="attach-row">
+      <button id="btnLawSearch" class="primary small" type="button">ابحث</button>
+      <button id="btnLawFromCase" class="ghost small" type="button">ابحث لقضيتي</button>
+      <button id="btnLawCopy" class="ghost small hidden" type="button">نسخ النتائج</button>
+    </div>
+    <div id="lawStatus" class="muted status" role="status" aria-live="polite"></div>
+    <div id="lawResults" class="hidden">
+      <div id="lawOut" class="out"></div>
+      <div id="lawSrcWrap" class="hidden">
+        <p class="muted law-src-h">المصادر التي رجع منها البحث:</p>
+        <div id="lawSrcs" class="law-srcs"></div>
+      </div>
+      <p class="muted law-note">النتائج من بحث مباشر في الويب وليست من ذاكرة النموذج. راجع النص الرسمي في المصادر قبل الاستناد إليه، ويظل الرجوع إلى <a href="https://uaelegislation.gov.ae" target="_blank" rel="noopener">منصة التشريعات الإماراتية</a> و<a href="https://www.moj.gov.ae" target="_blank" rel="noopener">وزارة العدل</a> هو الأصل.</p>
+    </div>
+  </section>
+
+<section id="output" class="hidden">
     <div class="card">
       <div class="row between">
         <h2>الملخص</h2>
@@ -325,8 +345,8 @@
   </div>
 </div>
 
-<script src="docx.js?v=10"></script>
-<script src="pdfgen.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="docx.js?v=11"></script>
+<script src="pdfgen.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

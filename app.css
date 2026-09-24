@@ -872,3 +872,13 @@ button.cite.cite-w { background: #fbeedd; color: #8a4b10; box-shadow: inset 0 0 
 
 /* نقاط بدون اقتباس من النص الأصلي */
 #summaryOut li.li-noq { border-inline-start: 3px solid #d9a94e; padding-inline-start: 9px; }
+
+/* ==== البحث القانوني ==== */
+#lawQuery { width: 100%; margin-top: 2px; }
+.law-srcs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.law-src { display: block; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-decoration: none; transition: border-color 0.15s, background 0.15s; }
+.law-src:hover { border-color: var(--accent); background: var(--surface-2); }
+.law-src b { display: block; font-size: 14.5px; color: var(--ink); font-weight: 600; }
+.law-src-h { margin: 14px 0 6px; font-size: 14px; }
+.law-note { margin: 12px 0 0; font-size: 13px; line-height: 1.8; }
+.law-note a { color: var(--accent); }

@@ -41,6 +41,7 @@ const $ = (id) => document.getElementById(id);
 let attached = null; /* { mime, name, text?, data?, dataUrl?, url? } */
 let last = { summary: "", summaryEn: "", translation: "" };
 let currentSource = { kind: "none" }; /* { kind: "text"|"pdf"|"image"|"none", text?, url?, name? } */
+let lastLaw = { text: "", srcs: [], q: "" }; /* نتائج البحث القانوني */
 let currentCites = []; /* [{ text, pg }] نصوص الاقتباسات وأرقام صفحاتها إن وُجدت */
 let running = false;
 
@@ -2157,6 +2158,130 @@ function printExport(which) {
 }
 
 /* ===== تشغيل ===== */
+/* ===== البحث القانوني: قوانين وأحكام دولة الإمارات (بحث ويب مباشر) ===== */
+const LAW_SOURCES_HINT = "منصة التشريعات الإماراتية uaelegislation.gov.ae، ووزارة العدل moj.gov.ae، وبوابة تشريعات دبي dlp.dubai.gov.ae، وبوابة حكومة الإمارات u.ae، والمواقع الرسمية للمحاكم";
+function lawPrompt(q, fromCase) {
+  return "أنت مساعد بحث قانوني لمحام ومستشار قانوني يعمل في دولة الإمارات العربية المتحدة.\n" +
+    (fromCase
+      ? "هذه وقائع قضية (أو ملخصها). ابحث في الإنترنت عن النصوص القانونية والأحكام القضائية الإماراتية المنطبقة عليها:\n«" + q + "»\n"
+      : "ابحث في الإنترنت عن:\n«" + q + "»\n") +
+    "\nاكتب النتيجة بالعربية الفصحى بهذا الترتيب:\n" +
+    "### أولًا: النصوص القانونية\n" +
+    "لكل نص: اسم القانون أو اللائحة كاملًا، ورقم المادة إن أمكن، وسطر واحد يشرح صلته بالموضوع.\n" +
+    "### ثانيًا: الأحكام القضائية\n" +
+    "لكل حكم: المحكمة ورقم الحكم أو سنته إن وُجد، وسطر واحد عن المبدأ الذي قرره.\n" +
+    "### ثالثًا: ملاحظة عملية\n" +
+    "سطر أو سطران يوجزان ما يفيد المحامي عمليًا.\n" +
+    "\nقواعد صارمة:\n" +
+    "- اعتمد فقط على نتائج البحث الفعلية، وممنوع تمامًا اختراع أسماء قوانين أو أرقام مواد أو أحكام أو تواريخ.\n" +
+    "- إن لم تجد نصًا أو حكمًا موثوقًا فلا تذكره، واكتب مكانه: لم أجد نتائج موثوقة.\n" +
+    "- فضل المصادر الرسمية: " + LAW_SOURCES_HINT + ".\n" +
+    "- اذكر اسم الجهة أو الموقع الذي ورد منه كل نص إن أمكن، بدون كتابة روابط إنترنت.\n" +
+    "- لا تكتب مقدمات ولا خاتمة ولا أرقام مراجع بين أقواس.";
+}
+let lawBusy = false;
+function setLawStatus(msg, isErr) {
+  const el = $("lawStatus");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("err", !!isErr);
+}
+async function runLegalSearch(fromCase) {
+  if (lawBusy) return;
+  const key = keyFor("gemini");
+  if (!key) {
+    setLawStatus(isAdmin() ? "ضع مفتاح Gemini في الإعدادات أولا لتفعيل البحث القانوني." : "الخدمة غير مفعلة على هذا المتصفح بعد. تواصل مع مسؤول النظام لتفعيلها.", true);
+    if (isAdmin()) show($("settings"), true);
+    return;
+  }
+  let q = $("lawQuery").value.trim();
+  if (fromCase) {
+    const caseSrc = (last.summary && last.summary.trim()) ? last.summary.trim() : $("caseText").value.trim();
+    if (!caseSrc) { setLawStatus("الصق نص القضية أولا، وبعدها اضغط \"ابحث لقضيتي\".", true); return; }
+    q = caseSrc.length > 9000 ? caseSrc.slice(0, 9000) : caseSrc;
+  } else if (!q) {
+    setLawStatus("اكتب موضوع البحث أولا، مثال: التعويض عن الضرر.", true);
+    return;
+  }
+  lawBusy = true;
+  const b1 = $("btnLawSearch"), b2 = $("btnLawFromCase");
+  const old1 = b1.textContent;
+  b1.disabled = true; b2.disabled = true;
+  b1.textContent = "جاري البحث...";
+  setLawStatus("أبحث الآن في الويب عن نصوص وأحكام مطابقة...");
+  try {
+    const res = await fetch(`${GEMINI_BASE}/models/${modelFor("gemini")}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: lawPrompt(q, fromCase) }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+      })
+    });
+    let data = null; try { data = await res.json(); } catch (e) {}
+    if (!res.ok) {
+      if (res.status === 429) throw new Error("وصلت للحد المجاني للبحث حاليًا. استنى شوية وجرب تاني.");
+      throw new ApiError(apiErrorMessage(res.status, data, false), isRetryable(res.status));
+    }
+    const cand = data && data.candidates && data.candidates[0];
+    const text = (((cand && cand.content && cand.content.parts) || []).map((x) => x.text || "").join("")).trim();
+    const gm = (cand && cand.groundingMetadata) || {};
+    const srcs = [], seen = {};
+    (gm.groundingChunks || []).forEach((c) => {
+      const w = c && c.web;
+      if (!w || !w.uri || seen[w.uri]) return;
+      seen[w.uri] = 1;
+      srcs.push({ t: String(w.title || "").trim(), u: w.uri });
+    });
+    lastLaw = { text, srcs, q };
+    renderLawResults();
+    setLawStatus(srcs.length ? "" : "البحث خلص من غير مصادر مباشرة ظاهرة. جرب صياغة أوضح لو النتيجة ناقصة.");
+  } catch (e) {
+    setLawStatus(e && e.message ? e.message : "تعذر البحث. حاول مرة أخرى.", true);
+  } finally {
+    lawBusy = false;
+    b1.disabled = false; b2.disabled = false;
+    b1.textContent = old1;
+  }
+}
+function renderLawResults() {
+  const box = $("lawResults");
+  if (!box) return;
+  const txt = (lastLaw && lastLaw.text) || "";
+  $("lawOut").innerHTML = txt ? blocksToHtml(parseBlocksMd(txt, { n: 0, quotes: [] }), "screen") : "";
+  const srcs = (lastLaw && lastLaw.srcs) || [];
+  const list = $("lawSrcs");
+  list.innerHTML = "";
+  srcs.forEach((s) => {
+    const a = document.createElement("a");
+    a.className = "law-src";
+    a.href = s.u;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = s.t || "مصدر";
+    const b = document.createElement("b");
+    b.textContent = s.t || "مصدر";
+    a.appendChild(b);
+    list.appendChild(a);
+  });
+  $("lawSrcWrap").classList.toggle("hidden", !srcs.length);
+  box.classList.toggle("hidden", !txt && !srcs.length);
+  $("btnLawCopy").classList.toggle("hidden", !txt);
+}
+async function copyLawResults(btn) {
+  if (!lastLaw || !lastLaw.text) return;
+  let out = "نتائج البحث القانوني\n";
+  if (lastLaw.q && lastLaw.q.length <= 300) out += "الموضوع: " + lastLaw.q + "\n";
+  out += "\n" + lastLaw.text;
+  if (lastLaw.srcs.length) out += "\n\nالمصادر:\n" + lastLaw.srcs.map((s) => "- " + (s.t || "مصدر") + ": " + s.u).join("\n");
+  try {
+    await navigator.clipboard.writeText(out);
+    const old = btn.textContent;
+    btn.textContent = "تم النسخ";
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  } catch (e) {}
+}
 async function run() {
   if (running) return;
   if (!currentUser()) { showLogin(); return; }
@@ -2295,6 +2420,14 @@ function init() {
   });
 
   $("btnRun").addEventListener("click", run);
+
+  /* البحث القانوني */
+  $("btnLawSearch").addEventListener("click", () => runLegalSearch(false));
+  $("btnLawFromCase").addEventListener("click", () => runLegalSearch(true));
+  $("btnLawCopy").addEventListener("click", (e) => copyLawResults(e.currentTarget));
+  $("lawQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); runLegalSearch(false); }
+  });
 
   /* اختصار Ctrl+Enter للتشغيل */
   $("caseText").addEventListener("keydown", (e) => {
